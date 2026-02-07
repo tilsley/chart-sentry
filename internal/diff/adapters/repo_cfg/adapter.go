@@ -14,6 +14,9 @@ import (
 
 const manifestPath = ".chart-sentry.yaml"
 
+// Default environments and value file pattern when no manifest is provided
+var defaultEnvironments = []string{"sbx", "bbp", "dev", "stg", "prd", "tools", "client"}
+
 // Adapter implements ports.ConfigOrderingPort by reading the
 // .chart-sentry.yaml manifest from the target repository.
 type Adapter struct {
@@ -27,6 +30,7 @@ func New(cf *ghclient.ClientFactory) *Adapter {
 
 // GetOrdering fetches .chart-sentry.yaml from the given repo at the
 // specified ref and returns the parsed chart configurations.
+// If no manifest is found, returns default config for all charts in charts/ directory.
 func (a *Adapter) GetOrdering(ctx context.Context, owner, repo, ref string, installationID int64) ([]domain.ChartConfig, error) {
 	client := a.clientFactory.ForInstallation(installationID)
 
@@ -35,7 +39,8 @@ func (a *Adapter) GetOrdering(ctx context.Context, owner, repo, ref string, inst
 	})
 	if err != nil {
 		if resp != nil && resp.StatusCode == 404 {
-			return nil, fmt.Errorf("manifest %s not found in %s/%s at ref %s", manifestPath, owner, repo, ref)
+			// No manifest found - use default configuration
+			return getDefaultConfig(), nil
 		}
 		return nil, fmt.Errorf("fetching manifest: %w", err)
 	}
@@ -66,4 +71,25 @@ func (a *Adapter) GetOrdering(ctx context.Context, owner, repo, ref string, inst
 	}
 
 	return configs, nil
+}
+
+// getDefaultConfig returns a default configuration that monitors all charts
+// in the charts/ directory with standard environments using env-values.yaml pattern.
+func getDefaultConfig() []domain.ChartConfig {
+	// Create environments with {env}-values.yaml pattern
+	envs := make([]domain.EnvironmentConfig, 0, len(defaultEnvironments))
+	for _, env := range defaultEnvironments {
+		envs = append(envs, domain.EnvironmentConfig{
+			Name:       env,
+			ValueFiles: []string{env + "-values.yaml"},
+		})
+	}
+
+	// Return single chart config for charts/ directory
+	return []domain.ChartConfig{
+		{
+			Path:         "charts",
+			Environments: envs,
+		},
+	}
 }
