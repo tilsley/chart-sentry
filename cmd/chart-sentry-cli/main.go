@@ -29,10 +29,22 @@ func main() {
 func run() error {
 	var (
 		webhookURL = flag.String("url", "http://localhost:8080/webhook", "Webhook URL")
-		secret     = flag.String("secret", "test", "Webhook secret for signing")
+		secret     = flag.String("secret", "test", "Webhook secret for signing (default: test)")
 		installID  = flag.Int64("installation-id", 108584464, "GitHub App installation ID")
 	)
 	flag.Parse()
+
+	// Set defaults for CLI testing (matches Makefile defaults)
+	// These can be overridden by environment variables
+	if os.Getenv("WEBHOOK_SECRET") == "" {
+		os.Setenv("WEBHOOK_SECRET", *secret)
+	}
+	if os.Getenv("GITHUB_APP_ID") == "" {
+		os.Setenv("GITHUB_APP_ID", "2814878")
+	}
+	if os.Getenv("GITHUB_INSTALLATION_ID") == "" {
+		os.Setenv("GITHUB_INSTALLATION_ID", "108584464")
+	}
 
 	args := flag.Args()
 	if len(args) == 0 {
@@ -53,6 +65,7 @@ func run() error {
 	}
 
 	// Load config for GitHub API access
+	// GITHUB_PRIVATE_KEY is still required (from chart-sentry.pem or env var)
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
