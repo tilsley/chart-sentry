@@ -15,8 +15,7 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/nathantilsley/chart-sentry/internal/platform/config"
-	ghclient "github.com/nathantilsley/chart-sentry/internal/platform/github"
+	"github.com/google/go-github/v68/github"
 )
 
 func main() {
@@ -28,29 +27,28 @@ func main() {
 
 func run() error {
 	var (
+		token      = flag.String("token", "", "GitHub personal access token (or use GITHUB_TOKEN env var)")
 		webhookURL = flag.String("url", "http://localhost:8080/webhook", "Webhook URL")
 		secret     = flag.String("secret", "test", "Webhook secret for signing (default: test)")
 		installID  = flag.Int64("installation-id", 108584464, "GitHub App installation ID")
 	)
 	flag.Parse()
 
-	// Set defaults for CLI testing (matches Makefile defaults)
-	// These can be overridden by environment variables
-	if os.Getenv("WEBHOOK_SECRET") == "" {
-		os.Setenv("WEBHOOK_SECRET", *secret)
+	// Get token from flag or environment
+	if *token == "" {
+		*token = os.Getenv("GITHUB_TOKEN")
 	}
-	if os.Getenv("GITHUB_APP_ID") == "" {
-		os.Setenv("GITHUB_APP_ID", "2814878")
-	}
-	if os.Getenv("GITHUB_INSTALLATION_ID") == "" {
-		os.Setenv("GITHUB_INSTALLATION_ID", "108584464")
+	if *token == "" {
+		fmt.Fprintf(os.Stderr, "Error: GitHub token required\n")
+		fmt.Fprintf(os.Stderr, "Provide via -token flag or GITHUB_TOKEN env var\n")
+		return fmt.Errorf("missing github token")
 	}
 
 	args := flag.Args()
 	if len(args) == 0 {
 		fmt.Fprintf(os.Stderr, "Usage: chart-sentry-cli <pr-url> [flags]\n")
 		fmt.Fprintf(os.Stderr, "\nExample:\n")
-		fmt.Fprintf(os.Stderr, "  chart-sentry-cli https://github.com/owner/repo/pull/123\n")
+		fmt.Fprintf(os.Stderr, "  GITHUB_TOKEN=ghp_xxx chart-sentry-cli https://github.com/owner/repo/pull/123\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		flag.PrintDefaults()
 		return fmt.Errorf("missing PR URL")
@@ -64,24 +62,13 @@ func run() error {
 		return fmt.Errorf("parsing PR URL: %w", err)
 	}
 
-	// Load config for GitHub API access
-	// GITHUB_PRIVATE_KEY is still required (from chart-sentry.pem or env var)
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
-	}
-
-	// Create GitHub client
-	clientFactory, err := ghclient.NewClientFactory(cfg.GitHubAppID, cfg.GitHubPrivateKey)
-	if err != nil {
-		return fmt.Errorf("creating github client factory: %w", err)
-	}
-
-	client := clientFactory.ForInstallation(*installID)
+	// Create GitHub client with token
+	ctx := context.Background()
+	client := github.NewClient(nil).WithAuthToken(*token)
 
 	// Fetch PR details from GitHub
 	fmt.Printf("Fetching PR details from GitHub...\n")
-	pr, _, err := client.PullRequests.Get(context.Background(), owner, repo, prNum)
+	pr, _, err := client.PullRequests.Get(ctx, owner, repo, prNum)
 	if err != nil {
 		return fmt.Errorf("fetching PR: %w", err)
 	}
