@@ -1,0 +1,5 @@
+apiVersion: v2
+name: new-chart
+description: A brand new chart being added
+version: 0.1.0
+type: application

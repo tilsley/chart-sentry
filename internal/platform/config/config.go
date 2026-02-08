@@ -8,11 +8,12 @@ import (
 
 // Config holds the application configuration loaded from environment variables.
 type Config struct {
-	Port              int
-	WebhookSecret     string
-	GitHubAppID       int64
-	GitHubPrivateKey  string // PEM file contents
-	LogLevel          string
+	Port                 int
+	WebhookSecret        string
+	GitHubAppID          int64
+	GitHubInstallationID int64
+	GitHubPrivateKey     string // PEM file contents
+	LogLevel             string
 }
 
 // Load reads configuration from environment variables, validates required
@@ -44,6 +45,16 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("invalid GITHUB_APP_ID %q: %w", v, err)
 		}
 		cfg.GitHubAppID = id
+	}
+
+	if v := os.Getenv("GITHUB_INSTALLATION_ID"); v == "" {
+		return Config{}, fmt.Errorf("GITHUB_INSTALLATION_ID is required")
+	} else {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid GITHUB_INSTALLATION_ID %q: %w", v, err)
+		}
+		cfg.GitHubInstallationID = id
 	}
 
 	cfg.GitHubPrivateKey = os.Getenv("GITHUB_PRIVATE_KEY")

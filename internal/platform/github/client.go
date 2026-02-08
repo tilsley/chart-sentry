@@ -8,25 +8,15 @@ import (
 	gogithub "github.com/google/go-github/v68/github"
 )
 
-// ClientFactory creates per-installation GitHub API clients using
-// GitHub App JWT authentication.
-type ClientFactory struct {
-	transport *ghinstallation.AppsTransport
-}
-
-// NewClientFactory initialises a ClientFactory from the App ID and
-// private key PEM contents.
-func NewClientFactory(appID int64, privateKeyPEM string) (*ClientFactory, error) {
-	transport, err := ghinstallation.NewAppsTransport(http.DefaultTransport, appID, []byte(privateKeyPEM))
+// NewClient creates a GitHub API client authenticated as a GitHub App installation.
+// The ghinstallation transport automatically handles token renewal.
+func NewClient(appID, installationID int64, privateKeyPEM string) (*gogithub.Client, error) {
+	// Create installation transport - handles JWT generation and token refresh
+	transport, err := ghinstallation.New(http.DefaultTransport, appID, installationID, []byte(privateKeyPEM))
 	if err != nil {
-		return nil, fmt.Errorf("creating github app transport: %w", err)
+		return nil, fmt.Errorf("creating github installation transport: %w", err)
 	}
-	return &ClientFactory{transport: transport}, nil
-}
 
-// ForInstallation returns an authenticated GitHub client scoped to
-// the given installation ID.
-func (f *ClientFactory) ForInstallation(installationID int64) *gogithub.Client {
-	transport := ghinstallation.NewFromAppsTransport(f.transport, installationID)
-	return gogithub.NewClient(&http.Client{Transport: transport})
+	// Return client with auto-renewing transport
+	return gogithub.NewClient(&http.Client{Transport: transport}), nil
 }

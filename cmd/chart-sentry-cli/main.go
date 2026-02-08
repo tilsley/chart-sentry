@@ -29,8 +29,8 @@ func run() error {
 	var (
 		token      = flag.String("token", "", "GitHub personal access token (or use GITHUB_TOKEN env var)")
 		webhookURL = flag.String("url", "http://localhost:8080/webhook", "Webhook URL")
-		secret     = flag.String("secret", "test", "Webhook secret for signing (default: test)")
-		installID  = flag.Int64("installation-id", 108584464, "GitHub App installation ID")
+		secret     = flag.String("secret", "", "Webhook secret for signing (read from WEBHOOK_SECRET env var if not set)")
+		installID  = flag.Int64("installation-id", 0, "GitHub App installation ID (read from GITHUB_INSTALLATION_ID env var if not set)")
 	)
 	flag.Parse()
 
@@ -42,6 +42,32 @@ func run() error {
 		fmt.Fprintf(os.Stderr, "Error: GitHub token required\n")
 		fmt.Fprintf(os.Stderr, "Provide via -token flag or GITHUB_TOKEN env var\n")
 		return fmt.Errorf("missing github token")
+	}
+
+	// Get webhook secret from flag or environment
+	if *secret == "" {
+		*secret = os.Getenv("WEBHOOK_SECRET")
+	}
+	if *secret == "" {
+		fmt.Fprintf(os.Stderr, "Error: Webhook secret required\n")
+		fmt.Fprintf(os.Stderr, "Provide via -secret flag or WEBHOOK_SECRET env var\n")
+		return fmt.Errorf("missing webhook secret")
+	}
+
+	// Get installation ID from flag or environment
+	if *installID == 0 {
+		if idStr := os.Getenv("GITHUB_INSTALLATION_ID"); idStr != "" {
+			id, err := strconv.ParseInt(idStr, 10, 64)
+			if err != nil {
+				return fmt.Errorf("invalid GITHUB_INSTALLATION_ID: %w", err)
+			}
+			*installID = id
+		}
+	}
+	if *installID == 0 {
+		fmt.Fprintf(os.Stderr, "Error: GitHub App installation ID required\n")
+		fmt.Fprintf(os.Stderr, "Provide via -installation-id flag or GITHUB_INSTALLATION_ID env var\n")
+		return fmt.Errorf("missing installation ID")
 	}
 
 	args := flag.Args()

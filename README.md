@@ -23,20 +23,26 @@ A GitHub App that automatically generates Helm chart diffs for pull requests usi
 
 ### 2. Configuration
 
-Place your GitHub App private key in the project root:
+**Step 1:** Place your GitHub App private key in the project root:
 
 ```bash
 # Copy your GitHub App private key to the project root
 cp /path/to/your/key.pem chart-sentry.pem
 ```
 
-**That's it!** The Makefile includes all configuration:
-- `GITHUB_APP_ID=2814878`
-- `GITHUB_INSTALLATION_ID=108584464`
-- `WEBHOOK_SECRET=test`
-- `GITHUB_PRIVATE_KEY` (loaded from `chart-sentry.pem`)
+**Step 2:** Create a `.env` file with your GitHub App credentials:
 
-**Optional:** Override any values by creating a `.env` file (gitignored).
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit .env and add your real values:
+# GITHUB_APP_ID=your-app-id
+# GITHUB_INSTALLATION_ID=your-installation-id
+# WEBHOOK_SECRET=your-webhook-secret
+```
+
+Both `chart-sentry.pem` and `.env` are gitignored and will NOT be committed.
 
 ### 3. Repository Configuration
 
@@ -102,20 +108,22 @@ make lint
 
 You can test chart-sentry locally by simulating GitHub webhook requests:
 
-#### 1. Build the CLI tool
+#### 1. Ensure you have a `.env` file configured (see Configuration section)
+
+#### 2. Build the CLI tool
 
 ```bash
 make build-cli
 ```
 
-#### 2. Run the server with test webhook secret
+#### 3. Run the server
 
 **Terminal 1:**
 ```bash
-WEBHOOK_SECRET=test make run
+make run
 ```
 
-#### 3. Send a test webhook
+#### 4. Send a test webhook
 
 **Terminal 2:**
 ```bash
@@ -155,8 +163,8 @@ The server will then process the PR and post Check Runs to GitHub.
 -base string          Base branch (default "main")
 -action string        PR action (default "synchronize")
 -url string           Webhook URL (default "http://localhost:8080/webhook")
--secret string        Webhook secret (default "test")
--installation-id int  GitHub App installation ID (default 108584464)
+-secret string        Webhook secret (must match your .env WEBHOOK_SECRET)
+-installation-id int  GitHub App installation ID (from your .env)
 ```
 
 ## How It Works

@@ -12,26 +12,24 @@ import (
 	"strings"
 
 	gogithub "github.com/google/go-github/v68/github"
-
-	ghclient "github.com/nathantilsley/chart-sentry/internal/platform/github"
 )
 
 // Adapter implements ports.SourceControlPort by downloading a repo
 // tarball and extracting the chart directory.
 type Adapter struct {
-	clientFactory *ghclient.ClientFactory
+	client *gogithub.Client
 }
 
 // New creates a new source control adapter.
-func New(cf *ghclient.ClientFactory) *Adapter {
-	return &Adapter{clientFactory: cf}
+func New(client *gogithub.Client) *Adapter {
+	return &Adapter{client: client}
 }
 
 // FetchChartFiles downloads the repo tarball at the given ref, extracts it
 // to a temp directory, and returns the path to the chart subdirectory.
 // The caller must invoke cleanup() when done to remove the temp files.
-func (a *Adapter) FetchChartFiles(ctx context.Context, owner, repo, ref, chartPath string, installationID int64) (string, func(), error) {
-	client := a.clientFactory.ForInstallation(installationID)
+func (a *Adapter) FetchChartFiles(ctx context.Context, owner, repo, ref, chartPath string) (string, func(), error) {
+	client := a.client
 
 	archiveURL, _, err := client.Repositories.GetArchiveLink(ctx, owner, repo, gogithub.Tarball, &gogithub.RepositoryContentGetOptions{
 		Ref: ref,

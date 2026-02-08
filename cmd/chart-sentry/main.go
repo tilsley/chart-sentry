@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/env_discovery"
 	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/github_in"
 	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/github_out"
 	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/helm_cli"
 	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/pr_files"
-	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/repo_cfg"
 	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/source_ctrl"
 	"github.com/nathantilsley/chart-sentry/internal/diff/app"
 	"github.com/nathantilsley/chart-sentry/internal/platform/config"
@@ -37,23 +37,24 @@ func run() error {
 
 	log := logger.New(cfg.LogLevel)
 
-	clientFactory, err := ghclient.NewClientFactory(cfg.GitHubAppID, cfg.GitHubPrivateKey)
+	// Create GitHub client with auto-renewing authentication
+	githubClient, err := ghclient.NewClient(cfg.GitHubAppID, cfg.GitHubInstallationID, cfg.GitHubPrivateKey)
 	if err != nil {
-		return fmt.Errorf("creating github client factory: %w", err)
+		return fmt.Errorf("creating github client: %w", err)
 	}
 
 	// Init adapters
-	repoCfg := repocfg.New(clientFactory)
-	sourceCtrl := sourcectrl.New(clientFactory)
+	envDiscovery := envdiscovery.New()
+	sourceCtrl := sourcectrl.New(githubClient)
 	helmRenderer, err := helmcli.New()
 	if err != nil {
 		return fmt.Errorf("creating helm adapter: %w", err)
 	}
-	reporter := githubout.New(clientFactory)
-	fileChanges := prfiles.New(clientFactory)
+	reporter := githubout.New(githubClient)
+	fileChanges := prfiles.New(githubClient)
 
 	// Domain service
-	diffService := app.NewDiffService(sourceCtrl, repoCfg, helmRenderer, reporter, fileChanges, log)
+	diffService := app.NewDiffService(sourceCtrl, envDiscovery, helmRenderer, reporter, fileChanges, log)
 
 	// Webhook handler
 	webhookHandler := githubin.NewWebhookHandler(diffService, cfg.WebhookSecret, log)

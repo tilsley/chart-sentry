@@ -57,13 +57,12 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pr := domain.PRContext{
-		Owner:          prEvent.GetRepo().GetOwner().GetLogin(),
-		Repo:           prEvent.GetRepo().GetName(),
-		PRNumber:       prEvent.GetNumber(),
-		BaseRef:        prEvent.GetPullRequest().GetBase().GetRef(),
-		HeadRef:        prEvent.GetPullRequest().GetHead().GetRef(),
-		HeadSHA:        prEvent.GetPullRequest().GetHead().GetSHA(),
-		InstallationID: prEvent.GetInstallation().GetID(),
+		Owner:    prEvent.GetRepo().GetOwner().GetLogin(),
+		Repo:     prEvent.GetRepo().GetName(),
+		PRNumber: prEvent.GetNumber(),
+		BaseRef:  prEvent.GetPullRequest().GetBase().GetRef(),
+		HeadRef:  prEvent.GetPullRequest().GetHead().GetRef(),
+		HeadSHA:  prEvent.GetPullRequest().GetHead().GetSHA(),
 	}
 
 	h.logger.Info("processing pull request",

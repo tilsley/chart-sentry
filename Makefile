@@ -1,4 +1,4 @@
-.PHONY: help build build-cli run test test-verbose test-integration test-integration-update clean fmt vet lint
+.PHONY: help build build-cli run test test-verbose test-integration test-integration-update test-e2e test-e2e-local clean fmt vet lint
 
 # Variables
 BINARY_NAME=chart-sentry
@@ -7,10 +7,11 @@ MAIN_PATH=./cmd/chart-sentry
 CLI_MAIN_PATH=./cmd/chart-sentry-cli
 BUILD_DIR=./bin
 
-# GitHub App Configuration (can be overridden by .env)
-export GITHUB_APP_ID ?= 2814878
-export GITHUB_INSTALLATION_ID ?= 108584464
-export WEBHOOK_SECRET ?= test
+# GitHub App Configuration (MUST be set in .env for real deployments)
+# These are placeholder values for testing only
+export GITHUB_APP_ID ?= 123456
+export GITHUB_INSTALLATION_ID ?= 789012
+export WEBHOOK_SECRET ?= test-webhook-secret
 
 # Load .env file if it exists (will override above defaults)
 ifneq (,$(wildcard ./.env))
@@ -31,6 +32,8 @@ help:
 	@echo "  make test-verbose       - Run all tests with verbose output"
 	@echo "  make test-integration   - Run integration tests only (requires helm)"
 	@echo "  make test-integration-update - Regenerate golden files for integration tests"
+	@echo "  make test-e2e           - Run end-to-end tests with real GitHub PRs (requires E2E_TEST=true)"
+	@echo "  make test-e2e-local     - Run E2E tests using Makefile config (just needs GITHUB_TOKEN)"
 	@echo ""
 	@echo "Code Quality:"
 	@echo "  make fmt                - Format code with gofmt"
@@ -40,10 +43,17 @@ help:
 	@echo "Cleanup:"
 	@echo "  make clean              - Remove build artifacts"
 	@echo ""
-	@echo "Manual Testing (all config in Makefile, just add chart-sentry.pem):"
-	@echo "  1. Place GitHub App private key at: ./chart-sentry.pem"
-	@echo "  2. Terminal 1: make run"
-	@echo "  3. Terminal 2: make build-cli && ./bin/chart-sentry-cli https://github.com/owner/repo/pull/123"
+	@echo "Manual Testing:"
+	@echo "  1. Create .env file with your GitHub App credentials (see .env.example)"
+	@echo "  2. Place GitHub App private key at: ./chart-sentry.pem"
+	@echo "  3. Terminal 1: make run"
+	@echo "  4. Terminal 2: make build-cli && ./bin/chart-sentry-cli https://github.com/owner/repo/pull/123"
+	@echo ""
+	@echo "E2E Testing (creates real PRs):"
+	@echo "  1. Configure .env with your GitHub App credentials"
+	@echo "  2. Place GitHub App private key at: ./chart-sentry.pem"
+	@echo "  3. export GITHUB_TOKEN=ghp_your_token_here"
+	@echo "  4. make test-e2e-local"
 
 build:
 	@mkdir -p $(BUILD_DIR)
@@ -98,6 +108,49 @@ test-integration:
 
 test-integration-update:
 	go test ./internal/diff/app/ -run Integration -update -v
+
+test-e2e:
+	@echo "Running E2E tests..."
+	@if [ -z "$$GITHUB_TOKEN" ]; then \
+		echo "Error: GITHUB_TOKEN not set. Required for E2E tests."; \
+		echo "Create a personal access token and export it:"; \
+		echo "  export GITHUB_TOKEN=ghp_your_token_here"; \
+		exit 1; \
+	fi
+	@if [ "$$E2E_TEST" != "true" ]; then \
+		echo "Error: E2E_TEST not set to 'true'."; \
+		echo "Set it to enable E2E tests:"; \
+		echo "  export E2E_TEST=true"; \
+		exit 1; \
+	fi
+	@echo "✓ Running E2E tests against real GitHub..."
+	go test ./test/e2e -v -timeout 5m
+
+test-e2e-local:
+	@echo "Running E2E tests with local configuration..."
+	@if [ -z "$$GITHUB_TOKEN" ]; then \
+		echo "Error: GITHUB_TOKEN not set. Required for E2E tests."; \
+		echo "Create a personal access token and export it:"; \
+		echo "  export GITHUB_TOKEN=ghp_your_token_here"; \
+		exit 1; \
+	fi
+	@if [ -z "$$GITHUB_PRIVATE_KEY" ] && [ ! -f chart-sentry.pem ]; then \
+		echo "Error: GITHUB_PRIVATE_KEY not set and chart-sentry.pem not found."; \
+		echo ""; \
+		echo "Place your GitHub App private key at: ./chart-sentry.pem"; \
+		echo "Or add to .env: GITHUB_PRIVATE_KEY=\"\$$(cat /path/to/your/key.pem)\""; \
+		exit 1; \
+	fi
+	@echo "✓ Configuration loaded"
+	@echo "  GitHub App ID: $$GITHUB_APP_ID"
+	@echo "  Installation ID: $$GITHUB_INSTALLATION_ID"
+	@echo "  Webhook Secret: $$WEBHOOK_SECRET"
+	@echo ""
+	@if [ -z "$$GITHUB_PRIVATE_KEY" ] && [ -f chart-sentry.pem ]; then \
+		export GITHUB_PRIVATE_KEY="$$(cat chart-sentry.pem)" && E2E_TEST=true go test ./test/e2e -v -timeout 5m; \
+	else \
+		E2E_TEST=true go test ./test/e2e -v -timeout 5m; \
+	fi
 
 fmt:
 	gofmt -w -s ./cmd ./internal

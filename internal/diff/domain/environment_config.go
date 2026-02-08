@@ -6,9 +6,3 @@ type EnvironmentConfig struct {
 	Name       string
 	ValueFiles []string
 }
-
-// ChartConfig groups a chart path with its environment configurations.
-type ChartConfig struct {
-	Path         string
-	Environments []EnvironmentConfig
-}

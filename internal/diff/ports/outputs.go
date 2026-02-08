@@ -8,13 +8,13 @@ import (
 
 // SourceControlPort abstracts fetching chart files from a repository at a given ref.
 type SourceControlPort interface {
-	FetchChartFiles(ctx context.Context, owner, repo, ref, chartPath string, installationID int64) (tmpDir string, cleanup func(), err error)
+	FetchChartFiles(ctx context.Context, owner, repo, ref, chartPath string) (tmpDir string, cleanup func(), err error)
 }
 
-// ConfigOrderingPort abstracts reading the chart-sentry manifest that defines
-// which charts and environments to diff.
-type ConfigOrderingPort interface {
-	GetOrdering(ctx context.Context, owner, repo, ref string, installationID int64) ([]domain.ChartConfig, error)
+// EnvironmentDiscoveryPort abstracts discovering which environments exist for
+// a chart by inspecting its directory structure after files have been fetched.
+type EnvironmentDiscoveryPort interface {
+	DiscoverEnvironments(ctx context.Context, chartDir string) ([]domain.EnvironmentConfig, error)
 }
 
 // RendererPort abstracts Helm template rendering, separated from source control
@@ -25,10 +25,22 @@ type RendererPort interface {
 
 // ReportingPort abstracts posting diff results back to the pull request.
 type ReportingPort interface {
+	// CreateInProgressCheck creates a check run in "in_progress" status for a chart
+	// and returns the check run ID for later updates.
+	CreateInProgressCheck(ctx context.Context, pr domain.PRContext, chartName string) (checkRunID int64, err error)
+
+	// UpdateCheckWithResults updates an existing check run with final diff results.
+	UpdateCheckWithResults(ctx context.Context, pr domain.PRContext, checkRunID int64, results []domain.DiffResult) error
+
+	// PostComment posts a PR comment with diff results for a chart.
+	PostComment(ctx context.Context, pr domain.PRContext, results []domain.DiffResult) error
+
+	// Deprecated: Use CreateInProgressCheck + UpdateCheckWithResults instead.
+	// Kept for backwards compatibility with tests.
 	PostResult(ctx context.Context, pr domain.PRContext, results []domain.DiffResult) error
 }
 
 // FileChangesPort abstracts checking which files have been modified in a PR.
 type FileChangesPort interface {
-	GetChangedFiles(ctx context.Context, owner, repo string, prNumber int, installationID int64) ([]string, error)
+	GetChangedFiles(ctx context.Context, owner, repo string, prNumber int) ([]string, error)
 }

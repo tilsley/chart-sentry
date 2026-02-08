@@ -20,7 +20,10 @@ bin/
 # Environment variables (contains secrets)
 .env
 .env.local
+
+# GitHub App private key (contains secrets)
 *.pem
+chart-sentry.pem
 
 # IDE
 .vscode/

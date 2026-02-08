@@ -2,13 +2,12 @@ package domain
 
 // PRContext holds the details of a pull request event.
 type PRContext struct {
-	Owner          string
-	Repo           string
-	PRNumber       int
-	BaseRef        string
-	HeadRef        string
-	HeadSHA        string
-	InstallationID int64
+	Owner    string
+	Repo     string
+	PRNumber int
+	BaseRef  string
+	HeadRef  string
+	HeadSHA  string
 }
 
 // DiffResult represents the diff output for a single chart + environment pair.

@@ -9,7 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/helm_cli"
+	envdiscovery "github.com/nathantilsley/chart-sentry/internal/diff/adapters/env_discovery"
+	helmcli "github.com/nathantilsley/chart-sentry/internal/diff/adapters/helm_cli"
 	"github.com/nathantilsley/chart-sentry/internal/diff/domain"
 )
 
@@ -34,9 +35,11 @@ func TestIntegration_FullDiffFlow(t *testing.T) {
 	baseRef := "main"
 	headRef := "feat/update-config"
 
-	envs := []domain.EnvironmentConfig{
-		{Name: "staging", ValueFiles: []string{"env/staging-values.yaml"}},
-		{Name: "prod", ValueFiles: []string{"env/prod-values.yaml"}},
+	// Discover environments from head chart dir
+	discovery := envdiscovery.New()
+	envs, err := discovery.DiscoverEnvironments(ctx, headChartDir)
+	if err != nil {
+		t.Fatalf("discovering environments: %v", err)
 	}
 
 	var allResults []domain.DiffResult
@@ -80,43 +83,74 @@ func TestIntegration_FullDiffFlow(t *testing.T) {
 			if !hasChanges {
 				t.Fatal("expected changes but got none")
 			}
-
-			// Format as check run markdown (mirrors github_out.formatDiffText + metadata)
-			checkRunMD := formatCheckRunMarkdown(result)
-
-			goldenFile := filepath.Join(goldenDir, fmt.Sprintf("check-run-my-app-%s.md", env.Name))
-			compareOrUpdateGolden(t, goldenFile, checkRunMD)
 		})
 	}
 
+	// Generate grouped check run markdown (one per chart)
+	checkRunMD := formatCheckRunMarkdown(allResults)
+	goldenFile := filepath.Join(goldenDir, "check-run-my-app.md")
+	compareOrUpdateGolden(t, goldenFile, checkRunMD)
+
 	// Generate PR summary comment
 	prComment := formatPRComment(allResults)
-	goldenFile := filepath.Join(goldenDir, "pr-comment.md")
+	goldenFile = filepath.Join(goldenDir, "pr-comment.md")
 	compareOrUpdateGolden(t, goldenFile, prComment)
 }
 
 // formatCheckRunMarkdown produces the markdown that mirrors what GitHub displays
-// for a Check Run created by chart-sentry.
-func formatCheckRunMarkdown(r domain.DiffResult) string {
+// for a Check Run created by chart-sentry — one check run per chart with
+// collapsible environment sections.
+func formatCheckRunMarkdown(results []domain.DiffResult) string {
+	if len(results) == 0 {
+		return ""
+	}
+
+	chartName := results[0].ChartName
+
+	changed := 0
+	unchanged := 0
+	for _, r := range results {
+		if r.HasChanges {
+			changed++
+		} else {
+			unchanged++
+		}
+	}
+
 	conclusion := "success"
-	if r.HasChanges {
+	if changed > 0 {
 		conclusion = "neutral"
 	}
 
-	diffText := "No changes detected."
-	if r.UnifiedDiff != "" {
-		diffText = "```diff\n" + r.UnifiedDiff + "\n```"
-	}
-
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "# chart-sentry: %s/%s\n\n", r.ChartName, r.Environment)
+	fmt.Fprintf(&sb, "# chart-sentry: %s\n\n", chartName)
 	fmt.Fprintf(&sb, "**Status:** completed\n")
 	fmt.Fprintf(&sb, "**Conclusion:** %s\n\n", conclusion)
-	fmt.Fprintf(&sb, "## Helm diff — %s (%s)\n\n", r.ChartName, r.Environment)
+	fmt.Fprintf(&sb, "## Helm diff — %s\n\n", chartName)
 	fmt.Fprintf(&sb, "### Summary\n")
-	fmt.Fprintf(&sb, "%s\n\n", r.Summary)
+	fmt.Fprintf(&sb, "Analyzed %d environment(s): %d changed, %d unchanged\n\n", len(results), changed, unchanged)
 	fmt.Fprintf(&sb, "### Output\n")
-	fmt.Fprintf(&sb, "%s\n", diffText)
+
+	for i, r := range results {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+
+		status := "No Changes"
+		if r.HasChanges {
+			status = "Changed"
+		}
+
+		fmt.Fprintf(&sb, "<details><summary>%s — %s</summary>\n\n", r.Environment, status)
+
+		if r.UnifiedDiff == "" {
+			sb.WriteString("No changes detected.\n")
+		} else {
+			fmt.Fprintf(&sb, "```diff\n%s\n```\n", r.UnifiedDiff)
+		}
+
+		sb.WriteString("\n</details>\n")
+	}
 
 	return sb.String()
 }
@@ -151,6 +185,95 @@ func formatPRComment(results []domain.DiffResult) string {
 	}
 
 	return sb.String()
+}
+
+// TestIntegration_NewChart tests the scenario where a chart is being added
+// for the first time (exists in HEAD but not in BASE).
+func TestIntegration_NewChart(t *testing.T) {
+	if _, err := helmcli.New(); err != nil {
+		t.Skipf("helm not on PATH, skipping integration test: %v", err)
+	}
+
+	renderer, err := helmcli.New()
+	if err != nil {
+		t.Fatalf("creating helm adapter: %v", err)
+	}
+
+	ctx := context.Background()
+	testdataDir := filepath.Join("testdata")
+	// Base chart does NOT exist - simulating new chart
+	baseChartDir := filepath.Join(testdataDir, "base", "new-chart")
+	headChartDir := filepath.Join(testdataDir, "head", "new-chart")
+	goldenDir := filepath.Join(testdataDir, "golden")
+
+	baseRef := "main"
+	headRef := "feat/add-new-chart"
+
+	// Check that base chart does NOT exist
+	if _, err := os.Stat(baseChartDir); err == nil {
+		t.Fatalf("base chart should not exist for this test, but it does at %s", baseChartDir)
+	}
+
+	// Discover environments from head chart dir
+	discovery := envdiscovery.New()
+	envs, err := discovery.DiscoverEnvironments(ctx, headChartDir)
+	if err != nil {
+		t.Fatalf("discovering environments: %v", err)
+	}
+
+	var allResults []domain.DiffResult
+
+	for _, env := range envs {
+		t.Run(env.Name, func(t *testing.T) {
+			// For a new chart, base manifest should be empty
+			var baseManifest []byte
+			if _, err := os.Stat(baseChartDir); err == nil {
+				baseManifest, err = renderer.Render(ctx, baseChartDir, env.ValueFiles)
+				if err != nil {
+					t.Fatalf("rendering base for %s: %v", env.Name, err)
+				}
+			}
+			// else: baseManifest remains empty (nil/empty byte slice)
+
+			headManifest, err := renderer.Render(ctx, headChartDir, env.ValueFiles)
+			if err != nil {
+				t.Fatalf("rendering head for %s: %v", env.Name, err)
+			}
+
+			diff := computeDiff(
+				fmt.Sprintf("new-chart/%s (%s)", env.Name, baseRef),
+				fmt.Sprintf("new-chart/%s (%s)", env.Name, headRef),
+				baseManifest,
+				headManifest,
+			)
+
+			hasChanges := diff != ""
+			summary := "No changes detected."
+			if hasChanges {
+				summary = fmt.Sprintf("Changes detected in new-chart for environment %s.", env.Name)
+			}
+
+			result := domain.DiffResult{
+				ChartName:   "new-chart",
+				Environment: env.Name,
+				BaseRef:     baseRef,
+				HeadRef:     headRef,
+				HasChanges:  hasChanges,
+				UnifiedDiff: diff,
+				Summary:     summary,
+			}
+			allResults = append(allResults, result)
+
+			if !hasChanges {
+				t.Fatal("expected changes but got none (new chart should show all additions)")
+			}
+		})
+	}
+
+	// Generate grouped check run markdown
+	checkRunMD := formatCheckRunMarkdown(allResults)
+	goldenFile := filepath.Join(goldenDir, "check-run-new-chart.md")
+	compareOrUpdateGolden(t, goldenFile, checkRunMD)
 }
 
 // compareOrUpdateGolden either updates the golden file or compares against it.

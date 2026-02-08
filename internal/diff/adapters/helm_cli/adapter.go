@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
 	"os/exec"
 	"path/filepath"
 )
@@ -31,15 +33,21 @@ func (a *Adapter) Render(ctx context.Context, chartDir string, valueFiles []stri
 		args = append(args, "-f", filepath.Join(chartDir, vf))
 	}
 
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logger.Info("running helm template", "chartDir", chartDir, "valueFiles", valueFiles, "args", args)
+
 	cmd := exec.CommandContext(ctx, a.helmBin, args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	logger.Info("executing helm command")
 	if err := cmd.Run(); err != nil {
+		logger.Error("helm template failed", "error", err, "stderr", stderr.String())
 		return nil, fmt.Errorf("helm template failed: %w\nstderr: %s", err, stderr.String())
 	}
 
+	logger.Info("helm command completed", "outputSize", len(stdout.Bytes()))
 	return stdout.Bytes(), nil
 }

@@ -3,11 +3,13 @@ package githubout
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
+	"strings"
 
 	gogithub "github.com/google/go-github/v68/github"
 
 	"github.com/nathantilsley/chart-sentry/internal/diff/domain"
-	ghclient "github.com/nathantilsley/chart-sentry/internal/platform/github"
 )
 
 const maxCheckRunTextLen = 65535
@@ -15,54 +17,316 @@ const maxCheckRunTextLen = 65535
 // Adapter implements ports.ReportingPort by posting results via the
 // GitHub Checks API.
 type Adapter struct {
-	clientFactory *ghclient.ClientFactory
+	client *gogithub.Client
 }
 
 // New creates a new GitHub reporting adapter.
-func New(cf *ghclient.ClientFactory) *Adapter {
-	return &Adapter{clientFactory: cf}
+func New(client *gogithub.Client) *Adapter {
+	return &Adapter{client: client}
 }
 
-// PostResult creates one GitHub Check Run per environment with the diff output.
-func (a *Adapter) PostResult(ctx context.Context, pr domain.PRContext, results []domain.DiffResult) error {
-	client := a.clientFactory.ForInstallation(pr.InstallationID)
+// CreateInProgressCheck creates a check run in "in_progress" status.
+func (a *Adapter) CreateInProgressCheck(ctx context.Context, pr domain.PRContext, chartName string) (int64, error) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logger.Info("creating in-progress check", "chart", chartName, "pr", pr.PRNumber)
 
-	for _, r := range results {
-		conclusion := "success"
-		if r.HasChanges {
-			conclusion = "neutral"
+	client := a.client
+
+	checkRun, _, err := client.Checks.CreateCheckRun(ctx, pr.Owner, pr.Repo, gogithub.CreateCheckRunOptions{
+		Name:    fmt.Sprintf("chart-sentry: %s", chartName),
+		HeadSHA: pr.HeadSHA,
+		Status:  gogithub.Ptr("in_progress"),
+		Output: &gogithub.CheckRunOutput{
+			Title:   gogithub.Ptr(fmt.Sprintf("Helm diff — %s", chartName)),
+			Summary: gogithub.Ptr("Analyzing chart changes..."),
+		},
+	})
+	if err != nil {
+		return 0, fmt.Errorf("creating in-progress check: %w", err)
+	}
+
+	logger.Info("in-progress check created", "chart", chartName, "checkRunID", checkRun.GetID())
+	return checkRun.GetID(), nil
+}
+
+// UpdateCheckWithResults updates an existing check run with final results.
+func (a *Adapter) UpdateCheckWithResults(ctx context.Context, pr domain.PRContext, checkRunID int64, results []domain.DiffResult) error {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logger.Info("updating check run with results", "checkRunID", checkRunID, "numResults", len(results))
+
+	if len(results) == 0 {
+		return fmt.Errorf("no results to update check run")
+	}
+
+	client := a.client
+	conclusion, summary, text := formatChartCheckRun(results)
+
+	_, _, err := client.Checks.UpdateCheckRun(ctx, pr.Owner, pr.Repo, checkRunID, gogithub.UpdateCheckRunOptions{
+		Name:       fmt.Sprintf("chart-sentry: %s", results[0].ChartName),
+		Status:     gogithub.Ptr("completed"),
+		Conclusion: gogithub.Ptr(conclusion),
+		Output: &gogithub.CheckRunOutput{
+			Title:   gogithub.Ptr(fmt.Sprintf("Helm diff — %s", results[0].ChartName)),
+			Summary: gogithub.Ptr(summary),
+			Text:    gogithub.Ptr(text),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("updating check run: %w", err)
+	}
+
+	logger.Info("check run updated successfully", "checkRunID", checkRunID)
+	return nil
+}
+
+// PostComment posts a PR comment with the diff summary for a chart.
+func (a *Adapter) PostComment(ctx context.Context, pr domain.PRContext, results []domain.DiffResult) error {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logger.Info("posting PR comment", "chart", results[0].ChartName, "pr", pr.PRNumber)
+
+	if len(results) == 0 {
+		return fmt.Errorf("no results to post comment")
+	}
+
+	client := a.client
+	chartName := results[0].ChartName
+	commentMarker := fmt.Sprintf("<!-- chart-sentry: %s -->", chartName)
+
+	// Delete old comments for this chart to avoid bloat
+	logger.Info("checking for existing comments to delete", "chart", chartName)
+	comments, _, err := client.Issues.ListComments(ctx, pr.Owner, pr.Repo, pr.PRNumber, &gogithub.IssueListCommentsOptions{})
+	if err != nil {
+		logger.Warn("failed to list comments, continuing anyway", "error", err)
+	} else {
+		for _, comment := range comments {
+			if strings.Contains(comment.GetBody(), commentMarker) {
+				logger.Info("deleting old comment", "commentID", comment.GetID())
+				_, err := client.Issues.DeleteComment(ctx, pr.Owner, pr.Repo, comment.GetID())
+				if err != nil {
+					logger.Warn("failed to delete old comment", "commentID", comment.GetID(), "error", err)
+				}
+			}
 		}
+	}
 
-		text := formatDiffText(r.UnifiedDiff)
+	// Format and post new comment
+	commentBody := formatPRComment(results)
 
+	_, _, err = client.Issues.CreateComment(ctx, pr.Owner, pr.Repo, pr.PRNumber, &gogithub.IssueComment{
+		Body: gogithub.Ptr(commentBody),
+	})
+	if err != nil {
+		return fmt.Errorf("creating PR comment: %w", err)
+	}
+
+	logger.Info("PR comment posted successfully", "chart", results[0].ChartName)
+	return nil
+}
+
+// PostResult creates one GitHub Check Run per chart with collapsible
+// environment sections containing the diff output.
+// Deprecated: Use CreateInProgressCheck + UpdateCheckWithResults for better UX.
+func (a *Adapter) PostResult(ctx context.Context, pr domain.PRContext, results []domain.DiffResult) error {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logger.Info("PostResult called", "numResults", len(results), "owner", pr.Owner, "repo", pr.Repo, "pr", pr.PRNumber)
+
+	client := a.client
+	groups := groupByChart(results)
+	logger.Info("grouped results by chart", "numGroups", len(groups))
+
+	for i, group := range groups {
+		logger.Info("processing chart group", "index", i, "chartName", group[0].ChartName, "numEnvs", len(group))
+		conclusion, summary, text := formatChartCheckRun(group)
+		logger.Info("formatted check run", "chartName", group[0].ChartName, "conclusion", conclusion, "textLen", len(text))
+
+		logger.Info("creating check run", "chartName", group[0].ChartName)
 		_, _, err := client.Checks.CreateCheckRun(ctx, pr.Owner, pr.Repo, gogithub.CreateCheckRunOptions{
-			Name:       fmt.Sprintf("chart-sentry: %s/%s", r.ChartName, r.Environment),
+			Name:       fmt.Sprintf("chart-sentry: %s", group[0].ChartName),
 			HeadSHA:    pr.HeadSHA,
 			Status:     gogithub.Ptr("completed"),
 			Conclusion: gogithub.Ptr(conclusion),
 			Output: &gogithub.CheckRunOutput{
-				Title:   gogithub.Ptr(fmt.Sprintf("Helm diff — %s (%s)", r.ChartName, r.Environment)),
-				Summary: gogithub.Ptr(r.Summary),
+				Title:   gogithub.Ptr(fmt.Sprintf("Helm diff — %s", group[0].ChartName)),
+				Summary: gogithub.Ptr(summary),
 				Text:    gogithub.Ptr(text),
 			},
 		})
 		if err != nil {
-			return fmt.Errorf("creating check run for %s/%s: %w", r.ChartName, r.Environment, err)
+			logger.Error("failed to create check run", "chartName", group[0].ChartName, "error", err)
+			return fmt.Errorf("creating check run for %s: %w", group[0].ChartName, err)
 		}
+		logger.Info("check run created successfully", "chartName", group[0].ChartName)
 	}
 
+	logger.Info("all check runs posted successfully")
 	return nil
 }
 
-func formatDiffText(diff string) string {
-	if diff == "" {
-		return "No changes detected."
+// chartGroup is a list of results ordered by insertion for a single chart.
+type chartGroup = []domain.DiffResult
+
+// groupByChart groups results by ChartName, preserving insertion order.
+func groupByChart(results []domain.DiffResult) []chartGroup {
+	order := make(map[string]int)
+	var groups []chartGroup
+
+	for _, r := range results {
+		idx, exists := order[r.ChartName]
+		if !exists {
+			idx = len(groups)
+			order[r.ChartName] = idx
+			groups = append(groups, nil)
+		}
+		groups[idx] = append(groups[idx], r)
+	}
+	return groups
+}
+
+// formatChartCheckRun builds the conclusion, summary, and collapsible text
+// for a single chart's Check Run.
+func formatChartCheckRun(group chartGroup) (conclusion, summary, text string) {
+	changed := 0
+	unchanged := 0
+	errors := 0
+
+	for _, r := range group {
+		// Check if this is an error result
+		if strings.HasPrefix(r.Summary, "❌") {
+			errors++
+		} else if r.HasChanges {
+			changed++
+		} else {
+			unchanged++
+		}
 	}
 
-	text := "```diff\n" + diff + "\n```"
+	// Set conclusion based on errors only
+	// Success = diff completed successfully (regardless of whether changes exist)
+	// Failure = error occurred during diff
+	if errors > 0 {
+		conclusion = "failure"
+		summary = fmt.Sprintf("❌ Failed to analyze chart (see details below)")
+	} else {
+		conclusion = "success"
+		summary = buildSummary(len(group), changed, unchanged)
+	}
+
+	var sb strings.Builder
+	for i, r := range group {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+
+		// Determine status for this environment
+		var status string
+		if strings.HasPrefix(r.Summary, "❌") {
+			status = "Error"
+		} else if r.HasChanges {
+			status = "Changed"
+		} else {
+			status = "No Changes"
+		}
+
+		fmt.Fprintf(&sb, "<details><summary>%s — %s</summary>\n\n", r.Environment, status)
+
+		// Show error or diff
+		if strings.HasPrefix(r.Summary, "❌") {
+			fmt.Fprintf(&sb, "%s\n", r.Summary)
+		} else if r.UnifiedDiff == "" {
+			sb.WriteString("No changes detected.\n")
+		} else {
+			fmt.Fprintf(&sb, "```diff\n%s\n```\n", r.UnifiedDiff)
+		}
+
+		sb.WriteString("\n</details>\n")
+	}
+
+	text = sb.String()
 	if len(text) > maxCheckRunTextLen {
 		truncMsg := "\n\n... (output truncated)"
 		text = text[:maxCheckRunTextLen-len(truncMsg)] + truncMsg
 	}
-	return text
+
+	return conclusion, summary, text
+}
+
+func buildSummary(total, changed, unchanged int) string {
+	return fmt.Sprintf("Analyzed %d environment(s): %d changed, %d unchanged", total, changed, unchanged)
+}
+
+// formatPRComment formats a PR comment body for a chart's diff results.
+func formatPRComment(results []domain.DiffResult) string {
+	if len(results) == 0 {
+		return ""
+	}
+
+	chartName := results[0].ChartName
+	var sb strings.Builder
+
+	// Hidden marker for identifying this comment (for deletion on updates)
+	fmt.Fprintf(&sb, "<!-- chart-sentry: %s -->\n", chartName)
+
+	// Header
+	fmt.Fprintf(&sb, "## 📊 Helm Diff Report: `%s`\n\n", chartName)
+
+	// Summary table
+	changed := 0
+	unchanged := 0
+	errors := 0
+	for _, r := range results {
+		if strings.HasPrefix(r.Summary, "❌") {
+			errors++
+		} else if r.HasChanges {
+			changed++
+		} else {
+			unchanged++
+		}
+	}
+
+	if errors > 0 {
+		fmt.Fprintf(&sb, "❌ **Status:** Failed to analyze chart\n\n")
+	} else if changed > 0 {
+		fmt.Fprintf(&sb, "✅ **Status:** Analysis complete — %d environment(s) with changes\n\n", changed)
+	} else {
+		fmt.Fprintf(&sb, "✅ **Status:** Analysis complete — No changes detected\n\n")
+	}
+
+	// Environment details table
+	sb.WriteString("| Environment | Status | Changes |\n")
+	sb.WriteString("|-------------|--------|----------|\n")
+	for _, r := range results {
+		var status, changes string
+		if strings.HasPrefix(r.Summary, "❌") {
+			status = "❌ Error"
+			changes = "-"
+		} else if r.HasChanges {
+			status = "📝 Changed"
+			changes = "Yes"
+		} else {
+			status = "✅ No changes"
+			changes = "No"
+		}
+		fmt.Fprintf(&sb, "| `%s` | %s | %s |\n", r.Environment, status, changes)
+	}
+	sb.WriteString("\n")
+
+	// Detailed diffs per environment
+	for _, r := range results {
+		if strings.HasPrefix(r.Summary, "❌") {
+			// Show error
+			fmt.Fprintf(&sb, "### %s — ❌ Error\n\n", r.Environment)
+			fmt.Fprintf(&sb, "%s\n\n", r.Summary)
+		} else if r.HasChanges {
+			// Show diff
+			fmt.Fprintf(&sb, "<details>\n<summary><b>%s</b> — 📝 View diff</summary>\n\n", r.Environment)
+			fmt.Fprintf(&sb, "```diff\n%s\n```\n\n", r.UnifiedDiff)
+			sb.WriteString("</details>\n\n")
+		}
+		// Skip environments with no changes (already shown in table)
+	}
+
+	sb.WriteString("---\n")
+	sb.WriteString("_Posted by [chart-sentry](https://github.com/nathantilsley/chart-sentry)_\n")
+
+	return sb.String()
 }

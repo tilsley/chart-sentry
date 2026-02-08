@@ -5,23 +5,22 @@ import (
 	"fmt"
 
 	"github.com/google/go-github/v68/github"
-	ghclient "github.com/nathantilsley/chart-sentry/internal/platform/github"
 )
 
 // Adapter implements ports.FileChangesPort by querying the GitHub API
 // for files changed in a pull request.
 type Adapter struct {
-	clientFactory *ghclient.ClientFactory
+	client *github.Client
 }
 
 // New creates a new PR files adapter.
-func New(cf *ghclient.ClientFactory) *Adapter {
-	return &Adapter{clientFactory: cf}
+func New(client *github.Client) *Adapter {
+	return &Adapter{client: client}
 }
 
 // GetChangedFiles returns a list of files modified in the PR.
-func (a *Adapter) GetChangedFiles(ctx context.Context, owner, repo string, prNumber int, installationID int64) ([]string, error) {
-	client := a.clientFactory.ForInstallation(installationID)
+func (a *Adapter) GetChangedFiles(ctx context.Context, owner, repo string, prNumber int) ([]string, error) {
+	client := a.client
 
 	var changedFiles []string
 	opts := &github.ListOptions{

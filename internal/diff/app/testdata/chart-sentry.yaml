@@ -1,9 +1,0 @@
-charts:
-  - path: my-app
-    environments:
-      - name: staging
-        valueFiles:
-          - env/staging-values.yaml
-      - name: prod
-        valueFiles:
-          - env/prod-values.yaml

@@ -1,12 +1,15 @@
-## Chart-Sentry Diff Report
+# chart-sentry: my-app
 
-| Chart | Environment | Status |
-|-------|-------------|--------|
-| my-app | prod | Changed |
-| my-app | staging | Changed |
+**Status:** completed
+**Conclusion:** neutral
 
-### my-app/prod
-<details><summary>View diff</summary>
+## Helm diff — my-app
+
+### Summary
+Analyzed 2 environment(s): 2 changed, 0 unchanged
+
+### Output
+<details><summary>prod — Changed</summary>
 
 ```diff
 --- my-app/prod (main)
@@ -61,10 +64,10 @@
 +              cpu: 2
 +              memory: 2Gi
 ```
+
 </details>
 
-### my-app/staging
-<details><summary>View diff</summary>
+<details><summary>staging — Changed</summary>
 
 ```diff
 --- my-app/staging (main)
@@ -113,5 +116,5 @@
              requests:
                cpu: 100m
 ```
-</details>
 
+</details>

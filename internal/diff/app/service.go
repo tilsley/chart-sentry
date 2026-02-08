@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"strings"
 
 	"github.com/pmezard/go-difflib/difflib"
@@ -14,11 +13,11 @@ import (
 )
 
 // DiffService implements ports.DiffUseCase by orchestrating the full
-// chart diff workflow: fetch config, check for chart changes, fetch chart files
-// for both refs, render, compute diffs, and report.
+// chart diff workflow: discover charts from changed files, fetch chart files,
+// discover environments, render, compute diffs, and report.
 type DiffService struct {
 	sourceControl ports.SourceControlPort
-	configOrder   ports.ConfigOrderingPort
+	envDiscovery  ports.EnvironmentDiscoveryPort
 	renderer      ports.RendererPort
 	reporter      ports.ReportingPort
 	fileChanges   ports.FileChangesPort
@@ -28,7 +27,7 @@ type DiffService struct {
 // NewDiffService creates a new DiffService wired with all driven ports.
 func NewDiffService(
 	sc ports.SourceControlPort,
-	co ports.ConfigOrderingPort,
+	ed ports.EnvironmentDiscoveryPort,
 	rn ports.RendererPort,
 	rp ports.ReportingPort,
 	fc ports.FileChangesPort,
@@ -36,7 +35,7 @@ func NewDiffService(
 ) *DiffService {
 	return &DiffService{
 		sourceControl: sc,
-		configOrder:   co,
+		envDiscovery:  ed,
 		renderer:      rn,
 		reporter:      rp,
 		fileChanges:   fc,
@@ -46,101 +45,185 @@ func NewDiffService(
 
 // Execute runs the diff workflow for a pull request.
 func (s *DiffService) Execute(ctx context.Context, pr domain.PRContext) error {
-	// Check if any files in the charts/ directory have been modified
-	changedFiles, err := s.fileChanges.GetChangedFiles(ctx, pr.Owner, pr.Repo, pr.PRNumber, pr.InstallationID)
+	changedFiles, err := s.fileChanges.GetChangedFiles(ctx, pr.Owner, pr.Repo, pr.PRNumber)
 	if err != nil {
 		return fmt.Errorf("fetching changed files: %w", err)
 	}
 
-	hasChartChanges := false
-	for _, file := range changedFiles {
-		if strings.HasPrefix(file, "charts/") {
-			hasChartChanges = true
-			break
-		}
-	}
-
-	if !hasChartChanges {
+	chartNames := extractChartNames(changedFiles)
+	if len(chartNames) == 0 {
 		s.logger.Info("no changes to charts/ directory, skipping diff")
 		return nil
 	}
 
-	configs, err := s.configOrder.GetOrdering(ctx, pr.Owner, pr.Repo, pr.HeadRef, pr.InstallationID)
-	if err != nil {
-		return fmt.Errorf("getting config ordering: %w", err)
-	}
-
-	var allResults []domain.DiffResult
-
-	for _, chartCfg := range configs {
-		chartName := filepath.Base(chartCfg.Path)
-
-		for _, env := range chartCfg.Environments {
-			s.logger.Info("diffing chart",
-				"chart", chartName,
-				"env", env.Name,
-				"base", pr.BaseRef,
-				"head", pr.HeadRef,
-			)
-
-			result, err := s.diffChartEnv(ctx, pr, chartCfg.Path, chartName, env)
-			if err != nil {
-				s.logger.Error("diff failed",
-					"chart", chartName,
-					"env", env.Name,
-					"error", err,
-				)
-				allResults = append(allResults, domain.DiffResult{
-					ChartName:   chartName,
-					Environment: env.Name,
-					BaseRef:     pr.BaseRef,
-					HeadRef:     pr.HeadRef,
-					HasChanges:  true,
-					UnifiedDiff: "",
-					Summary:     fmt.Sprintf("Error computing diff: %s", err),
-				})
-				continue
-			}
-			allResults = append(allResults, result)
+	for _, chartName := range chartNames {
+		// Create in-progress check immediately
+		checkRunID, err := s.reporter.CreateInProgressCheck(ctx, pr, chartName)
+		if err != nil {
+			s.logger.Error("failed to create in-progress check", "chart", chartName, "error", err)
+			continue
 		}
-	}
 
-	if err := s.reporter.PostResult(ctx, pr, allResults); err != nil {
-		return fmt.Errorf("posting results: %w", err)
+		// Process the chart and update check with results
+		results := s.processChart(ctx, pr, chartName)
+
+		if err := s.reporter.UpdateCheckWithResults(ctx, pr, checkRunID, results); err != nil {
+			s.logger.Error("failed to update check run", "chart", chartName, "checkRunID", checkRunID, "error", err)
+		}
+
+		// Post PR comment with diff summary
+		if err := s.reporter.PostComment(ctx, pr, results); err != nil {
+			s.logger.Error("failed to post PR comment", "chart", chartName, "error", err)
+		}
 	}
 
 	return nil
 }
 
-func (s *DiffService) diffChartEnv(ctx context.Context, pr domain.PRContext, chartPath, chartName string, env domain.EnvironmentConfig) (domain.DiffResult, error) {
-	baseDir, baseCleanup, err := s.sourceControl.FetchChartFiles(ctx, pr.Owner, pr.Repo, pr.BaseRef, chartPath, pr.InstallationID)
+// processChart handles fetching, discovering envs, and diffing a single chart.
+// Returns all diff results for the chart (including errors as DiffResult entries).
+func (s *DiffService) processChart(ctx context.Context, pr domain.PRContext, chartName string) []domain.DiffResult {
+	var results []domain.DiffResult
+	chartPath := "charts/" + chartName
+
+	// Fetch base chart files
+	baseDir, baseCleanup, err := s.sourceControl.FetchChartFiles(ctx, pr.Owner, pr.Repo, pr.BaseRef, chartPath)
+	baseExists := true
 	if err != nil {
-		return domain.DiffResult{}, fmt.Errorf("fetching base chart: %w", err)
+		if isNotFoundError(err) {
+			s.logger.Info("chart not found in base ref, treating as new chart", "chart", chartName, "base_ref", pr.BaseRef)
+			baseExists = false
+			baseDir = ""
+			baseCleanup = func() {}
+		} else {
+			s.logger.Error("failed to fetch base chart", "chart", chartName, "error", err)
+			return []domain.DiffResult{{
+				ChartName:   chartName,
+				Environment: "all",
+				BaseRef:     pr.BaseRef,
+				HeadRef:     pr.HeadRef,
+				HasChanges:  false,
+				Summary:     fmt.Sprintf("❌ Error fetching base chart: %s", err),
+			}}
+		}
 	}
 	defer baseCleanup()
 
-	headDir, headCleanup, err := s.sourceControl.FetchChartFiles(ctx, pr.Owner, pr.Repo, pr.HeadRef, chartPath, pr.InstallationID)
+	// Fetch head chart files
+	headDir, headCleanup, err := s.sourceControl.FetchChartFiles(ctx, pr.Owner, pr.Repo, pr.HeadRef, chartPath)
 	if err != nil {
-		return domain.DiffResult{}, fmt.Errorf("fetching head chart: %w", err)
+		s.logger.Error("failed to fetch head chart", "chart", chartName, "error", err)
+		return []domain.DiffResult{{
+			ChartName:   chartName,
+			Environment: "all",
+			BaseRef:     pr.BaseRef,
+			HeadRef:     pr.HeadRef,
+			HasChanges:  false,
+			Summary:     fmt.Sprintf("❌ Error fetching head chart: %s", err),
+		}}
 	}
 	defer headCleanup()
 
-	baseManifest, err := s.renderer.Render(ctx, baseDir, env.ValueFiles)
+	// Discover environments
+	envs, err := s.envDiscovery.DiscoverEnvironments(ctx, headDir)
 	if err != nil {
-		return domain.DiffResult{}, fmt.Errorf("rendering base: %w", err)
+		s.logger.Error("failed to discover environments", "chart", chartName, "error", err)
+		return []domain.DiffResult{{
+			ChartName:   chartName,
+			Environment: "all",
+			BaseRef:     pr.BaseRef,
+			HeadRef:     pr.HeadRef,
+			HasChanges:  false,
+			Summary:     fmt.Sprintf("❌ Error discovering environments: %s", err),
+		}}
 	}
 
+	// Diff each environment
+	for _, env := range envs {
+		s.logger.Info("diffing chart",
+			"chart", chartName,
+			"env", env.Name,
+			"base", pr.BaseRef,
+			"head", pr.HeadRef,
+		)
+
+		result, err := s.diffChartEnv(ctx, pr, chartName, baseDir, headDir, baseExists, env)
+		if err != nil {
+			s.logger.Error("diff failed",
+				"chart", chartName,
+				"env", env.Name,
+				"error", err,
+			)
+			results = append(results, domain.DiffResult{
+				ChartName:   chartName,
+				Environment: env.Name,
+				BaseRef:     pr.BaseRef,
+				HeadRef:     pr.HeadRef,
+				HasChanges:  false,
+				Summary:     fmt.Sprintf("❌ Error computing diff: %s", err),
+			})
+			continue
+		}
+		s.logger.Info("appending diff result", "chart", chartName, "env", env.Name, "hasChanges", result.HasChanges)
+		results = append(results, result)
+	}
+
+	return results
+}
+
+// extractChartNames parses changed file paths and returns unique chart names
+// from paths matching charts/{name}/...
+func extractChartNames(files []string) []string {
+	seen := make(map[string]struct{})
+	var names []string
+	for _, f := range files {
+		if !strings.HasPrefix(f, "charts/") {
+			continue
+		}
+		// charts/{name}/... → extract {name}
+		parts := strings.SplitN(f, "/", 3)
+		if len(parts) < 2 || parts[1] == "" {
+			continue
+		}
+		name := parts[1]
+		if _, ok := seen[name]; !ok {
+			seen[name] = struct{}{}
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func (s *DiffService) diffChartEnv(ctx context.Context, pr domain.PRContext, chartName, baseDir, headDir string, baseExists bool, env domain.EnvironmentConfig) (domain.DiffResult, error) {
+	var baseManifest []byte
+	var err error
+
+	if baseExists {
+		s.logger.Info("rendering base manifest", "chart", chartName, "env", env.Name, "baseDir", baseDir, "valueFiles", env.ValueFiles)
+		baseManifest, err = s.renderer.Render(ctx, baseDir, env.ValueFiles)
+		if err != nil {
+			return domain.DiffResult{}, fmt.Errorf("rendering base: %w", err)
+		}
+		s.logger.Info("base manifest rendered", "chart", chartName, "env", env.Name, "size", len(baseManifest))
+	} else {
+		s.logger.Info("skipping base render (chart not in base)", "chart", chartName, "env", env.Name)
+	}
+
+	s.logger.Info("rendering head manifest", "chart", chartName, "env", env.Name, "headDir", headDir, "valueFiles", env.ValueFiles)
 	headManifest, err := s.renderer.Render(ctx, headDir, env.ValueFiles)
 	if err != nil {
 		return domain.DiffResult{}, fmt.Errorf("rendering head: %w", err)
 	}
+	s.logger.Info("head manifest rendered", "chart", chartName, "env", env.Name, "size", len(headManifest))
 
+	s.logger.Info("computing diff", "chart", chartName, "env", env.Name)
 	diff := computeDiff(
 		fmt.Sprintf("%s/%s (%s)", chartName, env.Name, pr.BaseRef),
 		fmt.Sprintf("%s/%s (%s)", chartName, env.Name, pr.HeadRef),
 		baseManifest,
 		headManifest,
 	)
+	s.logger.Info("diff computed", "chart", chartName, "env", env.Name, "diffSize", len(diff))
 
 	hasChanges := diff != ""
 	summary := "No changes detected."
@@ -172,4 +255,15 @@ func computeDiff(baseName, headName string, base, head []byte) string {
 		return fmt.Sprintf("error computing diff: %s", err)
 	}
 	return strings.TrimSpace(text)
+}
+
+// isNotFoundError checks if an error indicates that a file/directory was not found.
+// This is used to detect when a chart doesn't exist in the base ref (new chart being added).
+func isNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "no such file or directory")
 }
