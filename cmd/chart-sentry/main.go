@@ -1,26 +1,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"log/slog"
-	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
-	"time"
 
-	dyffdiff "github.com/nathantilsley/chart-sentry/internal/diff/adapters/dyff_diff"
-	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/env_discovery"
-	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/github_in"
-	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/github_out"
-	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/helm_cli"
-	linediff "github.com/nathantilsley/chart-sentry/internal/diff/adapters/line_diff"
-	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/pr_files"
-	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/source_ctrl"
-	"github.com/nathantilsley/chart-sentry/internal/diff/app"
 	"github.com/nathantilsley/chart-sentry/internal/platform/config"
-	ghclient "github.com/nathantilsley/chart-sentry/internal/platform/github"
 	"github.com/nathantilsley/chart-sentry/internal/platform/logger"
 )
 
@@ -32,76 +16,22 @@ func main() {
 }
 
 func run() error {
+	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
+	// Initialize logger
 	log := logger.New(cfg.LogLevel)
 
-	// Create GitHub client with auto-renewing authentication
-	githubClient, err := ghclient.NewClient(cfg.GitHubAppID, cfg.GitHubInstallationID, cfg.GitHubPrivateKey)
+	// Build dependency container
+	container, err := NewContainer(cfg, log)
 	if err != nil {
-		return fmt.Errorf("creating github client: %w", err)
+		return fmt.Errorf("building container: %w", err)
 	}
 
-	// Init adapters
-	envDiscovery := envdiscovery.New()
-	sourceCtrl := sourcectrl.New(githubClient)
-	helmRenderer, err := helmcli.New()
-	if err != nil {
-		return fmt.Errorf("creating helm adapter: %w", err)
-	}
-	reporter := githubout.New(githubClient)
-	fileChanges := prfiles.New(githubClient)
-	semanticDiff := dyffdiff.New() // Semantic YAML diff (dyff)
-	unifiedDiff := linediff.New()  // Line-based diff (fallback)
-
-	// Domain service
-	diffService := app.NewDiffService(sourceCtrl, envDiscovery, helmRenderer, reporter, fileChanges, semanticDiff, unifiedDiff, log)
-
-	// Webhook handler
-	webhookHandler := githubin.NewWebhookHandler(diffService, cfg.WebhookSecret, log)
-
-	// Routes
-	mux := http.NewServeMux()
-	mux.Handle("POST /webhook", webhookHandler)
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "ok")
-	})
-
-	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.Port),
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-	}
-
-	// Graceful shutdown
-	errCh := make(chan error, 1)
-	go func() {
-		log.Info("starting server", slog.Int("port", cfg.Port))
-		errCh <- srv.ListenAndServe()
-	}()
-
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
-	select {
-	case sig := <-quit:
-		log.Info("shutting down", "signal", sig.String())
-	case err := <-errCh:
-		return fmt.Errorf("server error: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		return fmt.Errorf("graceful shutdown failed: %w", err)
-	}
-
-	log.Info("server stopped")
-	return nil
+	// Create and run server
+	server := NewServer(container)
+	return server.Run()
 }
