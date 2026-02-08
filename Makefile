@@ -1,4 +1,4 @@
-.PHONY: help build build-cli run test test-verbose test-integration test-integration-update test-e2e test-e2e-local clean fmt vet lint
+.PHONY: help build build-cli run test test-verbose test-integration test-integration-update test-e2e test-e2e-local clean fmt vet lint lint-go lint-arch coverage
 
 # Variables
 BINARY_NAME=chart-sentry
@@ -38,7 +38,10 @@ help:
 	@echo "Code Quality:"
 	@echo "  make fmt                - Format code with gofmt"
 	@echo "  make vet                - Run go vet"
-	@echo "  make lint               - Run go fmt/vet checks"
+	@echo "  make lint               - Run all linters (fmt, vet, golangci-lint, go-arch-lint)"
+	@echo "  make lint-go            - Run golangci-lint only"
+	@echo "  make lint-arch          - Run go-arch-lint (architecture validation)"
+	@echo "  make coverage           - Run tests with coverage report"
 	@echo ""
 	@echo "Cleanup:"
 	@echo "  make clean              - Remove build artifacts"
@@ -155,15 +158,51 @@ test-e2e-local:
 fmt:
 	gofmt -w -s ./cmd ./internal
 
-lint:
-	@echo "Running gofmt check..."
-	@! gofmt -l -s ./cmd ./internal | grep -q . || (echo "Code needs formatting. Run: make fmt"; exit 1)
-	@echo "Running go vet..."
-	go vet ./...
-	@echo "✓ All checks passed"
-
 vet:
 	go vet ./...
+
+lint-go:
+	@echo "Running golangci-lint..."
+	@which golangci-lint > /dev/null || (echo "Error: golangci-lint not installed. Install with: brew install golangci-lint"; exit 1)
+	golangci-lint run ./...
+	@echo "✓ golangci-lint passed"
+
+lint-arch:
+	@echo "Running go-arch-lint (hexagonal architecture validation)..."
+	@which go-arch-lint > /dev/null || (echo "Error: go-arch-lint not installed. Install with: go install github.com/fe3dback/go-arch-lint@latest"; exit 1)
+	go-arch-lint check
+	@echo "✓ Architecture validation passed"
+
+lint:
+	@echo "Running all linters..."
+	@echo ""
+	@echo "==> Checking formatting..."
+	@! gofmt -l -s ./cmd ./internal | grep -q . || (echo "Code needs formatting. Run: make fmt"; exit 1)
+	@echo "✓ Format check passed"
+	@echo ""
+	@echo "==> Running go vet..."
+	@go vet ./...
+	@echo "✓ go vet passed"
+	@echo ""
+	@echo "==> Running golangci-lint..."
+	@$(MAKE) lint-go
+	@echo ""
+	@echo "==> Running architecture validation..."
+	@$(MAKE) lint-arch
+	@echo ""
+	@echo "✓ All linters passed"
+
+coverage:
+	@echo "Running tests with coverage..."
+	@go test ./... -coverprofile=coverage.out
+	@echo ""
+	@echo "Coverage by package:"
+	@go tool cover -func=coverage.out | grep -v "no test files"
+	@echo ""
+	@echo "Total coverage:"
+	@go tool cover -func=coverage.out | grep total:
+	@echo ""
+	@echo "To view HTML coverage report: go tool cover -html=coverage.out"
 
 clean:
 	@rm -rf $(BUILD_DIR)

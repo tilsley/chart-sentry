@@ -9,8 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	dyffdiff "github.com/nathantilsley/chart-sentry/internal/diff/adapters/dyff_diff"
 	envdiscovery "github.com/nathantilsley/chart-sentry/internal/diff/adapters/env_discovery"
 	helmcli "github.com/nathantilsley/chart-sentry/internal/diff/adapters/helm_cli"
+	linediff "github.com/nathantilsley/chart-sentry/internal/diff/adapters/line_diff"
 	"github.com/nathantilsley/chart-sentry/internal/diff/domain"
 )
 
@@ -42,6 +44,10 @@ func TestIntegration_FullDiffFlow(t *testing.T) {
 		t.Fatalf("discovering environments: %v", err)
 	}
 
+	// Init diff adapters
+	semanticDiff := dyffdiff.New()
+	unifiedDiff := linediff.New()
+
 	var allResults []domain.DiffResult
 
 	for _, env := range envs {
@@ -56,27 +62,28 @@ func TestIntegration_FullDiffFlow(t *testing.T) {
 				t.Fatalf("rendering head for %s: %v", env.Name, err)
 			}
 
-			diff := computeDiff(
-				fmt.Sprintf("my-app/%s (%s)", env.Name, baseRef),
-				fmt.Sprintf("my-app/%s (%s)", env.Name, headRef),
-				baseManifest,
-				headManifest,
-			)
+			baseName := fmt.Sprintf("my-app/%s (%s)", env.Name, baseRef)
+			headName := fmt.Sprintf("my-app/%s (%s)", env.Name, headRef)
 
-			hasChanges := diff != ""
+			// Compute both diffs
+			semanticDiffOutput := semanticDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
+			unifiedDiffOutput := unifiedDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
+
+			hasChanges := semanticDiffOutput != "" || unifiedDiffOutput != ""
 			summary := "No changes detected."
 			if hasChanges {
 				summary = fmt.Sprintf("Changes detected in my-app for environment %s.", env.Name)
 			}
 
 			result := domain.DiffResult{
-				ChartName:   "my-app",
-				Environment: env.Name,
-				BaseRef:     baseRef,
-				HeadRef:     headRef,
-				HasChanges:  hasChanges,
-				UnifiedDiff: diff,
-				Summary:     summary,
+				ChartName:    "my-app",
+				Environment:  env.Name,
+				BaseRef:      baseRef,
+				HeadRef:      headRef,
+				HasChanges:   hasChanges,
+				UnifiedDiff:  unifiedDiffOutput,
+				SemanticDiff: semanticDiffOutput,
+				Summary:      summary,
 			}
 			allResults = append(allResults, result)
 
@@ -143,10 +150,18 @@ func formatCheckRunMarkdown(results []domain.DiffResult) string {
 
 		fmt.Fprintf(&sb, "<details><summary>%s — %s</summary>\n\n", r.Environment, status)
 
-		if r.UnifiedDiff == "" {
+		if r.UnifiedDiff == "" && r.SemanticDiff == "" {
 			sb.WriteString("No changes detected.\n")
 		} else {
-			fmt.Fprintf(&sb, "```diff\n%s\n```\n", r.UnifiedDiff)
+			// Show semantic diff first (if available), then unified diff
+			if r.SemanticDiff != "" {
+				sb.WriteString("**Semantic Diff (dyff):**\n")
+				fmt.Fprintf(&sb, "```diff\n%s\n```\n\n", r.SemanticDiff)
+			}
+			if r.UnifiedDiff != "" {
+				sb.WriteString("**Unified Diff (line-based):**\n")
+				fmt.Fprintf(&sb, "```diff\n%s\n```\n", r.UnifiedDiff)
+			}
 		}
 
 		sb.WriteString("\n</details>\n")
@@ -172,7 +187,7 @@ func formatPRComment(results []domain.DiffResult) string {
 	}
 	sb.WriteString("\n")
 
-	// Detail sections
+	// Detail sections - prefer semantic diff in PR comments
 	for _, r := range results {
 		fmt.Fprintf(&sb, "### %s/%s\n", r.ChartName, r.Environment)
 		if !r.HasChanges {
@@ -180,7 +195,12 @@ func formatPRComment(results []domain.DiffResult) string {
 			continue
 		}
 		sb.WriteString("<details><summary>View diff</summary>\n\n")
-		fmt.Fprintf(&sb, "```diff\n%s\n```\n", r.UnifiedDiff)
+		// Prefer semantic diff, fall back to unified diff
+		diffToShow := r.SemanticDiff
+		if diffToShow == "" {
+			diffToShow = r.UnifiedDiff
+		}
+		fmt.Fprintf(&sb, "```diff\n%s\n```\n", diffToShow)
 		sb.WriteString("</details>\n\n")
 	}
 
@@ -221,6 +241,10 @@ func TestIntegration_NewChart(t *testing.T) {
 		t.Fatalf("discovering environments: %v", err)
 	}
 
+	// Init diff adapters
+	semanticDiff := dyffdiff.New()
+	unifiedDiff := linediff.New()
+
 	var allResults []domain.DiffResult
 
 	for _, env := range envs {
@@ -240,27 +264,28 @@ func TestIntegration_NewChart(t *testing.T) {
 				t.Fatalf("rendering head for %s: %v", env.Name, err)
 			}
 
-			diff := computeDiff(
-				fmt.Sprintf("new-chart/%s (%s)", env.Name, baseRef),
-				fmt.Sprintf("new-chart/%s (%s)", env.Name, headRef),
-				baseManifest,
-				headManifest,
-			)
+			baseName := fmt.Sprintf("new-chart/%s (%s)", env.Name, baseRef)
+			headName := fmt.Sprintf("new-chart/%s (%s)", env.Name, headRef)
 
-			hasChanges := diff != ""
+			// Compute both diffs
+			semanticDiffOutput := semanticDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
+			unifiedDiffOutput := unifiedDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
+
+			hasChanges := semanticDiffOutput != "" || unifiedDiffOutput != ""
 			summary := "No changes detected."
 			if hasChanges {
 				summary = fmt.Sprintf("Changes detected in new-chart for environment %s.", env.Name)
 			}
 
 			result := domain.DiffResult{
-				ChartName:   "new-chart",
-				Environment: env.Name,
-				BaseRef:     baseRef,
-				HeadRef:     headRef,
-				HasChanges:  hasChanges,
-				UnifiedDiff: diff,
-				Summary:     summary,
+				ChartName:    "new-chart",
+				Environment:  env.Name,
+				BaseRef:      baseRef,
+				HeadRef:      headRef,
+				HasChanges:   hasChanges,
+				UnifiedDiff:  unifiedDiffOutput,
+				SemanticDiff: semanticDiffOutput,
+				Summary:      summary,
 			}
 			allResults = append(allResults, result)
 

@@ -18,10 +18,12 @@ import (
 
 	"github.com/google/go-github/v68/github"
 
-	githubin "github.com/nathantilsley/chart-sentry/internal/diff/adapters/github_in"
+	dyffdiff "github.com/nathantilsley/chart-sentry/internal/diff/adapters/dyff_diff"
 	envdiscovery "github.com/nathantilsley/chart-sentry/internal/diff/adapters/env_discovery"
+	githubin "github.com/nathantilsley/chart-sentry/internal/diff/adapters/github_in"
 	githubout "github.com/nathantilsley/chart-sentry/internal/diff/adapters/github_out"
 	helmcli "github.com/nathantilsley/chart-sentry/internal/diff/adapters/helm_cli"
+	linediff "github.com/nathantilsley/chart-sentry/internal/diff/adapters/line_diff"
 	prfiles "github.com/nathantilsley/chart-sentry/internal/diff/adapters/pr_files"
 	sourcectrl "github.com/nathantilsley/chart-sentry/internal/diff/adapters/source_ctrl"
 	"github.com/nathantilsley/chart-sentry/internal/diff/app"
@@ -815,12 +817,14 @@ func setupTestServer(t *testing.T, appID, installationID int64, privateKey, webh
 	}
 	reporter := githubout.New(githubClient)
 	fileChanges := prfiles.New(githubClient)
+	semanticDiff := dyffdiff.New()
+	unifiedDiff := linediff.New()
 
 	// Create logger
 	log := logger.New("info")
 
 	// Create service
-	diffService := app.NewDiffService(sourceCtrl, envDiscovery, helmRenderer, reporter, fileChanges, log)
+	diffService := app.NewDiffService(sourceCtrl, envDiscovery, helmRenderer, reporter, fileChanges, semanticDiff, unifiedDiff, log)
 
 	// Create webhook handler
 	webhookHandler := githubin.NewWebhookHandler(diffService, webhookSecret, log)

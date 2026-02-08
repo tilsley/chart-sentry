@@ -10,10 +10,12 @@ import (
 	"syscall"
 	"time"
 
+	dyffdiff "github.com/nathantilsley/chart-sentry/internal/diff/adapters/dyff_diff"
 	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/env_discovery"
 	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/github_in"
 	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/github_out"
 	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/helm_cli"
+	linediff "github.com/nathantilsley/chart-sentry/internal/diff/adapters/line_diff"
 	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/pr_files"
 	"github.com/nathantilsley/chart-sentry/internal/diff/adapters/source_ctrl"
 	"github.com/nathantilsley/chart-sentry/internal/diff/app"
@@ -52,9 +54,11 @@ func run() error {
 	}
 	reporter := githubout.New(githubClient)
 	fileChanges := prfiles.New(githubClient)
+	semanticDiff := dyffdiff.New() // Semantic YAML diff (dyff)
+	unifiedDiff := linediff.New()  // Line-based diff (fallback)
 
 	// Domain service
-	diffService := app.NewDiffService(sourceCtrl, envDiscovery, helmRenderer, reporter, fileChanges, log)
+	diffService := app.NewDiffService(sourceCtrl, envDiscovery, helmRenderer, reporter, fileChanges, semanticDiff, unifiedDiff, log)
 
 	// Webhook handler
 	webhookHandler := githubin.NewWebhookHandler(diffService, cfg.WebhookSecret, log)

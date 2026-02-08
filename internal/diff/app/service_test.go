@@ -71,6 +71,16 @@ func (m *mockFileChanges) GetChangedFiles(_ context.Context, _, _ string, _ int)
 	return m.files, nil
 }
 
+type mockDiff struct{}
+
+func (m *mockDiff) ComputeDiff(baseName, headName string, base, head []byte) string {
+	// Simple mock: return non-empty if content differs
+	if string(base) != string(head) {
+		return fmt.Sprintf("--- %s\n+++ %s\n@@ -1 +1 @@\n-%s\n+%s", baseName, headName, string(base), string(head))
+	}
+	return ""
+}
+
 func TestService_NoChartChanges(t *testing.T) {
 	// Setup mocks
 	srcCtrl := &mockSourceControl{charts: map[string]bool{}}
@@ -88,15 +98,17 @@ func TestService_NoChartChanges(t *testing.T) {
 	}
 
 	log := logger.New("error")
-	svc := NewDiffService(srcCtrl, envDiscovery, renderer, reporter, fileChanges, log)
+	semanticDiff := &mockDiff{}
+	unifiedDiff := &mockDiff{}
+	svc := NewDiffService(srcCtrl, envDiscovery, renderer, reporter, fileChanges, semanticDiff, unifiedDiff, log)
 
 	pr := domain.PRContext{
-		Owner:          "test-owner",
-		Repo:           "test-repo",
-		PRNumber:       1,
-		BaseRef:        "main",
-		HeadRef:        "feat/update-readme",
-		HeadSHA:        "abc123",
+		Owner:    "test-owner",
+		Repo:     "test-repo",
+		PRNumber: 1,
+		BaseRef:  "main",
+		HeadRef:  "feat/update-readme",
+		HeadSHA:  "abc123",
 	}
 
 	err := svc.Execute(context.Background(), pr)
@@ -135,15 +147,17 @@ func TestService_NewChartNotInBase(t *testing.T) {
 	}
 
 	log := logger.New("error") // Quiet logs for test
-	svc := NewDiffService(srcCtrl, envDiscovery, renderer, reporter, fileChanges, log)
+	semanticDiff := &mockDiff{}
+	unifiedDiff := &mockDiff{}
+	svc := NewDiffService(srcCtrl, envDiscovery, renderer, reporter, fileChanges, semanticDiff, unifiedDiff, log)
 
 	pr := domain.PRContext{
-		Owner:          "test-owner",
-		Repo:           "test-repo",
-		PRNumber:       1,
-		BaseRef:        "main",
-		HeadRef:        "feat/add-chart",
-		HeadSHA:        "abc123",
+		Owner:    "test-owner",
+		Repo:     "test-repo",
+		PRNumber: 1,
+		BaseRef:  "main",
+		HeadRef:  "feat/add-chart",
+		HeadSHA:  "abc123",
 	}
 
 	err := svc.Execute(context.Background(), pr)
@@ -239,9 +253,9 @@ func TestExtractChartNames(t *testing.T) {
 		{
 			name: "invalid chart paths",
 			files: []string{
-				"charts/",           // no chart name
-				"charts",            // not a path
-				"not-charts/app/",   // wrong prefix
+				"charts/",         // no chart name
+				"charts",          // not a path
+				"not-charts/app/", // wrong prefix
 				"charts/app/file.yaml",
 			},
 			expected: []string{"app"},

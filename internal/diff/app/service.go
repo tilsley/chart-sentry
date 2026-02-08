@@ -6,8 +6,6 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/pmezard/go-difflib/difflib"
-
 	"github.com/nathantilsley/chart-sentry/internal/diff/domain"
 	"github.com/nathantilsley/chart-sentry/internal/diff/ports"
 )
@@ -21,6 +19,8 @@ type DiffService struct {
 	renderer      ports.RendererPort
 	reporter      ports.ReportingPort
 	fileChanges   ports.FileChangesPort
+	semanticDiff  ports.DiffPort // Semantic YAML diff (e.g., dyff)
+	unifiedDiff   ports.DiffPort // Line-based diff (e.g., go-difflib)
 	logger        *slog.Logger
 }
 
@@ -31,6 +31,8 @@ func NewDiffService(
 	rn ports.RendererPort,
 	rp ports.ReportingPort,
 	fc ports.FileChangesPort,
+	semanticDiff ports.DiffPort,
+	unifiedDiff ports.DiffPort,
 	logger *slog.Logger,
 ) *DiffService {
 	return &DiffService{
@@ -39,6 +41,8 @@ func NewDiffService(
 		renderer:      rn,
 		reporter:      rp,
 		fileChanges:   fc,
+		semanticDiff:  semanticDiff,
+		unifiedDiff:   unifiedDiff,
 		logger:        logger,
 	}
 }
@@ -216,45 +220,34 @@ func (s *DiffService) diffChartEnv(ctx context.Context, pr domain.PRContext, cha
 	}
 	s.logger.Info("head manifest rendered", "chart", chartName, "env", env.Name, "size", len(headManifest))
 
-	s.logger.Info("computing diff", "chart", chartName, "env", env.Name)
-	diff := computeDiff(
-		fmt.Sprintf("%s/%s (%s)", chartName, env.Name, pr.BaseRef),
-		fmt.Sprintf("%s/%s (%s)", chartName, env.Name, pr.HeadRef),
-		baseManifest,
-		headManifest,
-	)
-	s.logger.Info("diff computed", "chart", chartName, "env", env.Name, "diffSize", len(diff))
+	s.logger.Info("computing diffs", "chart", chartName, "env", env.Name)
+	baseName := fmt.Sprintf("%s/%s (%s)", chartName, env.Name, pr.BaseRef)
+	headName := fmt.Sprintf("%s/%s (%s)", chartName, env.Name, pr.HeadRef)
 
-	hasChanges := diff != ""
+	// Compute semantic diff (dyff) - may be empty if dyff not available
+	semanticDiff := s.semanticDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
+	s.logger.Info("semantic diff computed", "chart", chartName, "env", env.Name, "size", len(semanticDiff))
+
+	// Always compute unified diff as fallback
+	unifiedDiff := s.unifiedDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
+	s.logger.Info("unified diff computed", "chart", chartName, "env", env.Name, "size", len(unifiedDiff))
+
+	hasChanges := unifiedDiff != "" || semanticDiff != ""
 	summary := "No changes detected."
 	if hasChanges {
 		summary = fmt.Sprintf("Changes detected in %s for environment %s.", chartName, env.Name)
 	}
 
 	return domain.DiffResult{
-		ChartName:   chartName,
-		Environment: env.Name,
-		BaseRef:     pr.BaseRef,
-		HeadRef:     pr.HeadRef,
-		HasChanges:  hasChanges,
-		UnifiedDiff: diff,
-		Summary:     summary,
+		ChartName:    chartName,
+		Environment:  env.Name,
+		BaseRef:      pr.BaseRef,
+		HeadRef:      pr.HeadRef,
+		HasChanges:   hasChanges,
+		UnifiedDiff:  unifiedDiff,
+		SemanticDiff: semanticDiff,
+		Summary:      summary,
 	}, nil
-}
-
-func computeDiff(baseName, headName string, base, head []byte) string {
-	ud := difflib.UnifiedDiff{
-		A:        difflib.SplitLines(string(base)),
-		B:        difflib.SplitLines(string(head)),
-		FromFile: baseName,
-		ToFile:   headName,
-		Context:  3,
-	}
-	text, err := difflib.GetUnifiedDiffString(ud)
-	if err != nil {
-		return fmt.Sprintf("error computing diff: %s", err)
-	}
-	return strings.TrimSpace(text)
 }
 
 // isNotFoundError checks if an error indicates that a file/directory was not found.

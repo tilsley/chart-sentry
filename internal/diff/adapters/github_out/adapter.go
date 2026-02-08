@@ -232,10 +232,18 @@ func formatChartCheckRun(group chartGroup) (conclusion, summary, text string) {
 		// Show error or diff
 		if strings.HasPrefix(r.Summary, "❌") {
 			fmt.Fprintf(&sb, "%s\n", r.Summary)
-		} else if r.UnifiedDiff == "" {
+		} else if r.UnifiedDiff == "" && r.SemanticDiff == "" {
 			sb.WriteString("No changes detected.\n")
 		} else {
-			fmt.Fprintf(&sb, "```diff\n%s\n```\n", r.UnifiedDiff)
+			// Check Runs: Show both diffs (semantic first, then unified)
+			if r.SemanticDiff != "" {
+				sb.WriteString("**Semantic Diff (dyff):**\n")
+				fmt.Fprintf(&sb, "```diff\n%s\n```\n\n", r.SemanticDiff)
+			}
+			if r.UnifiedDiff != "" {
+				sb.WriteString("**Unified Diff (line-based):**\n")
+				fmt.Fprintf(&sb, "```diff\n%s\n```\n", r.UnifiedDiff)
+			}
 		}
 
 		sb.WriteString("\n</details>\n")
@@ -310,16 +318,20 @@ func formatPRComment(results []domain.DiffResult) string {
 	}
 	sb.WriteString("\n")
 
-	// Detailed diffs per environment
+	// Detailed diffs per environment - prefer semantic diff in PR comments
 	for _, r := range results {
 		if strings.HasPrefix(r.Summary, "❌") {
 			// Show error
 			fmt.Fprintf(&sb, "### %s — ❌ Error\n\n", r.Environment)
 			fmt.Fprintf(&sb, "%s\n\n", r.Summary)
 		} else if r.HasChanges {
-			// Show diff
+			// Show diff - prefer semantic, fall back to unified
+			diffToShow := r.SemanticDiff
+			if diffToShow == "" {
+				diffToShow = r.UnifiedDiff
+			}
 			fmt.Fprintf(&sb, "<details>\n<summary><b>%s</b> — 📝 View diff</summary>\n\n", r.Environment)
-			fmt.Fprintf(&sb, "```diff\n%s\n```\n\n", r.UnifiedDiff)
+			fmt.Fprintf(&sb, "```diff\n%s\n```\n\n", diffToShow)
 			sb.WriteString("</details>\n\n")
 		}
 		// Skip environments with no changes (already shown in table)

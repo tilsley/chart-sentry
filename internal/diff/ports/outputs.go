@@ -44,3 +44,12 @@ type ReportingPort interface {
 type FileChangesPort interface {
 	GetChangedFiles(ctx context.Context, owner, repo string, prNumber int) ([]string, error)
 }
+
+// DiffPort abstracts computing diffs between two manifests.
+// Different implementations can provide different diff strategies
+// (e.g., semantic YAML diffing vs line-based text diffing).
+type DiffPort interface {
+	// ComputeDiff returns a diff between base and head manifests.
+	// baseName and headName are used for labeling (e.g., "my-app/prod (main)").
+	ComputeDiff(baseName, headName string, base, head []byte) string
+}

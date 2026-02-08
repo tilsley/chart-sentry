@@ -12,11 +12,12 @@ type PRContext struct {
 
 // DiffResult represents the diff output for a single chart + environment pair.
 type DiffResult struct {
-	ChartName   string
-	Environment string
-	BaseRef     string
-	HeadRef     string
-	HasChanges  bool
-	UnifiedDiff string
-	Summary     string
+	ChartName    string
+	Environment  string
+	BaseRef      string
+	HeadRef      string
+	HasChanges   bool
+	UnifiedDiff  string // Traditional line-based diff (go-difflib)
+	SemanticDiff string // Semantic YAML diff (dyff) - may be empty if dyff unavailable
+	Summary      string
 }
