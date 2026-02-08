@@ -106,6 +106,7 @@ func (s *DiffService) processChart(ctx context.Context, pr domain.PRContext, cha
 				Environment: "all",
 				BaseRef:     pr.BaseRef,
 				HeadRef:     pr.HeadRef,
+				Status:      domain.StatusError,
 				HasChanges:  false,
 				Summary:     fmt.Sprintf("❌ Error fetching base chart: %s", err),
 			}}
@@ -122,6 +123,7 @@ func (s *DiffService) processChart(ctx context.Context, pr domain.PRContext, cha
 			Environment: "all",
 			BaseRef:     pr.BaseRef,
 			HeadRef:     pr.HeadRef,
+			Status:      domain.StatusError,
 			HasChanges:  false,
 			Summary:     fmt.Sprintf("❌ Error fetching head chart: %s", err),
 		}}
@@ -137,6 +139,7 @@ func (s *DiffService) processChart(ctx context.Context, pr domain.PRContext, cha
 			Environment: "all",
 			BaseRef:     pr.BaseRef,
 			HeadRef:     pr.HeadRef,
+			Status:      domain.StatusError,
 			HasChanges:  false,
 			Summary:     fmt.Sprintf("❌ Error discovering environments: %s", err),
 		}}
@@ -163,6 +166,7 @@ func (s *DiffService) processChart(ctx context.Context, pr domain.PRContext, cha
 				Environment: env.Name,
 				BaseRef:     pr.BaseRef,
 				HeadRef:     pr.HeadRef,
+				Status:      domain.StatusError,
 				HasChanges:  false,
 				Summary:     fmt.Sprintf("❌ Error computing diff: %s", err),
 			})
@@ -233,9 +237,15 @@ func (s *DiffService) diffChartEnv(ctx context.Context, pr domain.PRContext, cha
 	s.logger.Info("unified diff computed", "chart", chartName, "env", env.Name, "size", len(unifiedDiff))
 
 	hasChanges := unifiedDiff != "" || semanticDiff != ""
-	summary := "No changes detected."
+	var status domain.Status
+	var summary string
+
 	if hasChanges {
+		status = domain.StatusChanges
 		summary = fmt.Sprintf("Changes detected in %s for environment %s.", chartName, env.Name)
+	} else {
+		status = domain.StatusSuccess
+		summary = "No changes detected."
 	}
 
 	return domain.DiffResult{
@@ -243,6 +253,7 @@ func (s *DiffService) diffChartEnv(ctx context.Context, pr domain.PRContext, cha
 		Environment:  env.Name,
 		BaseRef:      pr.BaseRef,
 		HeadRef:      pr.HeadRef,
+		Status:       status,
 		HasChanges:   hasChanges,
 		UnifiedDiff:  unifiedDiff,
 		SemanticDiff: semanticDiff,

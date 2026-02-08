@@ -185,20 +185,7 @@ func groupByChart(results []domain.DiffResult) []chartGroup {
 // formatChartCheckRun builds the conclusion, summary, and collapsible text
 // for a single chart's Check Run.
 func formatChartCheckRun(group chartGroup) (conclusion, summary, text string) {
-	changed := 0
-	unchanged := 0
-	errors := 0
-
-	for _, r := range group {
-		// Check if this is an error result
-		if strings.HasPrefix(r.Summary, "❌") {
-			errors++
-		} else if r.HasChanges {
-			changed++
-		} else {
-			unchanged++
-		}
-	}
+	success, changes, errors := domain.CountByStatus(group)
 
 	// Set conclusion based on errors only
 	// Success = diff completed successfully (regardless of whether changes exist)
@@ -208,7 +195,7 @@ func formatChartCheckRun(group chartGroup) (conclusion, summary, text string) {
 		summary = fmt.Sprintf("❌ Failed to analyze chart (see details below)")
 	} else {
 		conclusion = "success"
-		summary = buildSummary(len(group), changed, unchanged)
+		summary = buildSummary(len(group), changes, success)
 	}
 
 	var sb strings.Builder
@@ -217,20 +204,21 @@ func formatChartCheckRun(group chartGroup) (conclusion, summary, text string) {
 			sb.WriteString("\n")
 		}
 
-		// Determine status for this environment
-		var status string
-		if strings.HasPrefix(r.Summary, "❌") {
-			status = "Error"
-		} else if r.HasChanges {
-			status = "Changed"
-		} else {
-			status = "No Changes"
+		// Determine status label for this environment
+		var statusLabel string
+		switch r.Status {
+		case domain.StatusError:
+			statusLabel = "Error"
+		case domain.StatusChanges:
+			statusLabel = "Changed"
+		case domain.StatusSuccess:
+			statusLabel = "No Changes"
 		}
 
-		fmt.Fprintf(&sb, "<details><summary>%s — %s</summary>\n\n", r.Environment, status)
+		fmt.Fprintf(&sb, "<details><summary>%s — %s</summary>\n\n", r.Environment, statusLabel)
 
 		// Show error or diff
-		if strings.HasPrefix(r.Summary, "❌") {
+		if r.Status == domain.StatusError {
 			fmt.Fprintf(&sb, "%s\n", r.Summary)
 		} else if r.UnifiedDiff == "" && r.SemanticDiff == "" {
 			sb.WriteString("No changes detected.\n")
@@ -277,24 +265,13 @@ func formatPRComment(results []domain.DiffResult) string {
 	// Header
 	fmt.Fprintf(&sb, "## 📊 Helm Diff Report: `%s`\n\n", chartName)
 
-	// Summary table
-	changed := 0
-	unchanged := 0
-	errors := 0
-	for _, r := range results {
-		if strings.HasPrefix(r.Summary, "❌") {
-			errors++
-		} else if r.HasChanges {
-			changed++
-		} else {
-			unchanged++
-		}
-	}
+	// Summary counts
+	_, changes, errors := domain.CountByStatus(results)
 
 	if errors > 0 {
 		fmt.Fprintf(&sb, "❌ **Status:** Failed to analyze chart\n\n")
-	} else if changed > 0 {
-		fmt.Fprintf(&sb, "✅ **Status:** Analysis complete — %d environment(s) with changes\n\n", changed)
+	} else if changes > 0 {
+		fmt.Fprintf(&sb, "✅ **Status:** Analysis complete — %d environment(s) with changes\n\n", changes)
 	} else {
 		fmt.Fprintf(&sb, "✅ **Status:** Analysis complete — No changes detected\n\n")
 	}
@@ -303,38 +280,37 @@ func formatPRComment(results []domain.DiffResult) string {
 	sb.WriteString("| Environment | Status | Changes |\n")
 	sb.WriteString("|-------------|--------|----------|\n")
 	for _, r := range results {
-		var status, changes string
-		if strings.HasPrefix(r.Summary, "❌") {
-			status = "❌ Error"
-			changes = "-"
-		} else if r.HasChanges {
-			status = "📝 Changed"
-			changes = "Yes"
-		} else {
-			status = "✅ No changes"
-			changes = "No"
+		var statusLabel, changesLabel string
+		switch r.Status {
+		case domain.StatusError:
+			statusLabel = "❌ Error"
+			changesLabel = "-"
+		case domain.StatusChanges:
+			statusLabel = "📝 Changed"
+			changesLabel = "Yes"
+		case domain.StatusSuccess:
+			statusLabel = "✅ No changes"
+			changesLabel = "No"
 		}
-		fmt.Fprintf(&sb, "| `%s` | %s | %s |\n", r.Environment, status, changes)
+		fmt.Fprintf(&sb, "| `%s` | %s | %s |\n", r.Environment, statusLabel, changesLabel)
 	}
 	sb.WriteString("\n")
 
 	// Detailed diffs per environment - prefer semantic diff in PR comments
 	for _, r := range results {
-		if strings.HasPrefix(r.Summary, "❌") {
+		switch r.Status {
+		case domain.StatusError:
 			// Show error
 			fmt.Fprintf(&sb, "### %s — ❌ Error\n\n", r.Environment)
 			fmt.Fprintf(&sb, "%s\n\n", r.Summary)
-		} else if r.HasChanges {
-			// Show diff - prefer semantic, fall back to unified
-			diffToShow := r.SemanticDiff
-			if diffToShow == "" {
-				diffToShow = r.UnifiedDiff
-			}
+		case domain.StatusChanges:
+			// Show diff - use PreferredDiff (semantic if available, otherwise unified)
 			fmt.Fprintf(&sb, "<details>\n<summary><b>%s</b> — 📝 View diff</summary>\n\n", r.Environment)
-			fmt.Fprintf(&sb, "```diff\n%s\n```\n\n", diffToShow)
+			fmt.Fprintf(&sb, "```diff\n%s\n```\n\n", r.PreferredDiff())
 			sb.WriteString("</details>\n\n")
+		case domain.StatusSuccess:
+			// Skip environments with no changes (already shown in table)
 		}
-		// Skip environments with no changes (already shown in table)
 	}
 
 	sb.WriteString("---\n")
