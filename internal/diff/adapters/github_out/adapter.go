@@ -131,7 +131,7 @@ func (a *Adapter) PostResult(ctx context.Context, pr domain.PRContext, results [
 	logger.Info("PostResult called", "numResults", len(results), "owner", pr.Owner, "repo", pr.Repo, "pr", pr.PRNumber)
 
 	client := a.client
-	groups := groupByChart(results)
+	groups := domain.GroupByChart(results)
 	logger.Info("grouped results by chart", "numGroups", len(groups))
 
 	for i, group := range groups {
@@ -162,29 +162,9 @@ func (a *Adapter) PostResult(ctx context.Context, pr domain.PRContext, results [
 	return nil
 }
 
-// chartGroup is a list of results ordered by insertion for a single chart.
-type chartGroup = []domain.DiffResult
-
-// groupByChart groups results by ChartName, preserving insertion order.
-func groupByChart(results []domain.DiffResult) []chartGroup {
-	order := make(map[string]int)
-	var groups []chartGroup
-
-	for _, r := range results {
-		idx, exists := order[r.ChartName]
-		if !exists {
-			idx = len(groups)
-			order[r.ChartName] = idx
-			groups = append(groups, nil)
-		}
-		groups[idx] = append(groups[idx], r)
-	}
-	return groups
-}
-
 // formatChartCheckRun builds the conclusion, summary, and collapsible text
 // for a single chart's Check Run.
-func formatChartCheckRun(group chartGroup) (conclusion, summary, text string) {
+func formatChartCheckRun(group []domain.DiffResult) (conclusion, summary, text string) {
 	success, changes, errors := domain.CountByStatus(group)
 
 	// Set conclusion based on errors only

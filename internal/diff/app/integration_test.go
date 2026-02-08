@@ -62,8 +62,8 @@ func TestIntegration_FullDiffFlow(t *testing.T) {
 				t.Fatalf("rendering head for %s: %v", env.Name, err)
 			}
 
-			baseName := fmt.Sprintf("my-app/%s (%s)", env.Name, baseRef)
-			headName := fmt.Sprintf("my-app/%s (%s)", env.Name, headRef)
+			baseName := domain.FormatDiffLabel("my-app", env.Name, baseRef)
+			headName := domain.FormatDiffLabel("my-app", env.Name, headRef)
 
 			// Compute both diffs
 			semanticDiffOutput := semanticDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
@@ -264,8 +264,8 @@ func TestIntegration_NewChart(t *testing.T) {
 				t.Fatalf("rendering head for %s: %v", env.Name, err)
 			}
 
-			baseName := fmt.Sprintf("new-chart/%s (%s)", env.Name, baseRef)
-			headName := fmt.Sprintf("new-chart/%s (%s)", env.Name, headRef)
+			baseName := domain.FormatDiffLabel("new-chart", env.Name, baseRef)
+			headName := domain.FormatDiffLabel("new-chart", env.Name, headRef)
 
 			// Compute both diffs
 			semanticDiffOutput := semanticDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)

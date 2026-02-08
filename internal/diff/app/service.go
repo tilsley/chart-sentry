@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/nathantilsley/chart-sentry/internal/diff/domain"
 	"github.com/nathantilsley/chart-sentry/internal/diff/ports"
@@ -54,7 +53,7 @@ func (s *DiffService) Execute(ctx context.Context, pr domain.PRContext) error {
 		return fmt.Errorf("fetching changed files: %w", err)
 	}
 
-	chartNames := extractChartNames(changedFiles)
+	chartNames := domain.ExtractChartNames(changedFiles)
 	if len(chartNames) == 0 {
 		s.logger.Info("no changes to charts/ directory, skipping diff")
 		return nil
@@ -94,7 +93,7 @@ func (s *DiffService) processChart(ctx context.Context, pr domain.PRContext, cha
 	baseDir, baseCleanup, err := s.sourceControl.FetchChartFiles(ctx, pr.Owner, pr.Repo, pr.BaseRef, chartPath)
 	baseExists := true
 	if err != nil {
-		if isNotFoundError(err) {
+		if domain.IsNotFound(err) {
 			s.logger.Info("chart not found in base ref, treating as new chart", "chart", chartName, "base_ref", pr.BaseRef)
 			baseExists = false
 			baseDir = ""
@@ -179,29 +178,6 @@ func (s *DiffService) processChart(ctx context.Context, pr domain.PRContext, cha
 	return results
 }
 
-// extractChartNames parses changed file paths and returns unique chart names
-// from paths matching charts/{name}/...
-func extractChartNames(files []string) []string {
-	seen := make(map[string]struct{})
-	var names []string
-	for _, f := range files {
-		if !strings.HasPrefix(f, "charts/") {
-			continue
-		}
-		// charts/{name}/... → extract {name}
-		parts := strings.SplitN(f, "/", 3)
-		if len(parts) < 2 || parts[1] == "" {
-			continue
-		}
-		name := parts[1]
-		if _, ok := seen[name]; !ok {
-			seen[name] = struct{}{}
-			names = append(names, name)
-		}
-	}
-	return names
-}
-
 func (s *DiffService) diffChartEnv(ctx context.Context, pr domain.PRContext, chartName, baseDir, headDir string, baseExists bool, env domain.EnvironmentConfig) (domain.DiffResult, error) {
 	var baseManifest []byte
 	var err error
@@ -225,8 +201,8 @@ func (s *DiffService) diffChartEnv(ctx context.Context, pr domain.PRContext, cha
 	s.logger.Info("head manifest rendered", "chart", chartName, "env", env.Name, "size", len(headManifest))
 
 	s.logger.Info("computing diffs", "chart", chartName, "env", env.Name)
-	baseName := fmt.Sprintf("%s/%s (%s)", chartName, env.Name, pr.BaseRef)
-	headName := fmt.Sprintf("%s/%s (%s)", chartName, env.Name, pr.HeadRef)
+	baseName := domain.FormatDiffLabel(chartName, env.Name, pr.BaseRef)
+	headName := domain.FormatDiffLabel(chartName, env.Name, pr.HeadRef)
 
 	// Compute semantic diff (dyff) - may be empty if dyff not available
 	semanticDiff := s.semanticDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
@@ -259,15 +235,4 @@ func (s *DiffService) diffChartEnv(ctx context.Context, pr domain.PRContext, cha
 		SemanticDiff: semanticDiff,
 		Summary:      summary,
 	}, nil
-}
-
-// isNotFoundError checks if an error indicates that a file/directory was not found.
-// This is used to detect when a chart doesn't exist in the base ref (new chart being added).
-func isNotFoundError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "not found") ||
-		strings.Contains(msg, "no such file or directory")
 }

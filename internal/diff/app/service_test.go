@@ -192,6 +192,7 @@ func TestService_NewChartNotInBase(t *testing.T) {
 }
 
 func TestExtractChartNames(t *testing.T) {
+	// This now tests the domain function
 	tests := []struct {
 		name     string
 		files    []string
@@ -264,7 +265,7 @@ func TestExtractChartNames(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractChartNames(tt.files)
+			result := domain.ExtractChartNames(tt.files)
 
 			if len(result) != len(tt.expected) {
 				t.Errorf("expected %d chart names, got %d: %v", len(tt.expected), len(result), result)

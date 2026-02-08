@@ -55,3 +55,28 @@ func CountByStatus(results []DiffResult) (success, changes, errors int) {
 	}
 	return
 }
+
+// FormatDiffLabel creates a display name for a diff comparison.
+// Example: "my-app/prod (main)"
+func FormatDiffLabel(chartName, envName, ref string) string {
+	return chartName + "/" + envName + " (" + ref + ")"
+}
+
+// GroupByChart groups results by ChartName, preserving insertion order.
+// Returns a slice of slices, where each inner slice contains all results
+// for a single chart.
+func GroupByChart(results []DiffResult) [][]DiffResult {
+	order := make(map[string]int)
+	var groups [][]DiffResult
+
+	for _, r := range results {
+		idx, exists := order[r.ChartName]
+		if !exists {
+			idx = len(groups)
+			order[r.ChartName] = idx
+			groups = append(groups, nil)
+		}
+		groups[idx] = append(groups[idx], r)
+	}
+	return groups
+}
