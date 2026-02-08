@@ -257,22 +257,19 @@ func formatPRComment(results []domain.DiffResult) string {
 	}
 
 	// Environment details table
-	sb.WriteString("| Environment | Status | Changes |\n")
-	sb.WriteString("|-------------|--------|----------|\n")
+	sb.WriteString("| Environment | Status |\n")
+	sb.WriteString("|-------------|--------|\n")
 	for _, r := range results {
-		var statusLabel, changesLabel string
+		var statusLabel string
 		switch r.Status {
 		case domain.StatusError:
 			statusLabel = "❌ Error"
-			changesLabel = "-"
 		case domain.StatusChanges:
 			statusLabel = "📝 Changed"
-			changesLabel = "Yes"
 		case domain.StatusSuccess:
 			statusLabel = "✅ No changes"
-			changesLabel = "No"
 		}
-		fmt.Fprintf(&sb, "| `%s` | %s | %s |\n", r.Environment, statusLabel, changesLabel)
+		fmt.Fprintf(&sb, "| `%s` | %s |\n", r.Environment, statusLabel)
 	}
 	sb.WriteString("\n")
 
@@ -280,12 +277,13 @@ func formatPRComment(results []domain.DiffResult) string {
 	for _, r := range results {
 		switch r.Status {
 		case domain.StatusError:
-			// Show error
-			fmt.Fprintf(&sb, "### %s — ❌ Error\n\n", r.Environment)
+			// Show error details
+			fmt.Fprintf(&sb, "<details>\n<summary><b>%s</b> — Error details</summary>\n\n", r.Environment)
 			fmt.Fprintf(&sb, "%s\n\n", r.Summary)
+			sb.WriteString("</details>\n\n")
 		case domain.StatusChanges:
 			// Show diff - use PreferredDiff (semantic if available, otherwise unified)
-			fmt.Fprintf(&sb, "<details>\n<summary><b>%s</b> — 📝 View diff</summary>\n\n", r.Environment)
+			fmt.Fprintf(&sb, "<details>\n<summary><b>%s</b> — View diff</summary>\n\n", r.Environment)
 			fmt.Fprintf(&sb, "```diff\n%s\n```\n\n", r.PreferredDiff())
 			sb.WriteString("</details>\n\n")
 		case domain.StatusSuccess:
