@@ -62,17 +62,21 @@ func TestIntegration_FullDiffFlow(t *testing.T) {
 				t.Fatalf("rendering head for %s: %v", env.Name, err)
 			}
 
-			baseName := domain.FormatDiffLabel("my-app", env.Name, baseRef)
-			headName := domain.FormatDiffLabel("my-app", env.Name, headRef)
+			baseName := domain.DiffLabel("my-app", env.Name, baseRef)
+			headName := domain.DiffLabel("my-app", env.Name, headRef)
 
 			// Compute both diffs
 			semanticDiffOutput := semanticDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
 			unifiedDiffOutput := unifiedDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
 
-			hasChanges := semanticDiffOutput != "" || unifiedDiffOutput != ""
-			summary := "No changes detected."
-			if hasChanges {
+			var status domain.Status
+			var summary string
+			if semanticDiffOutput != "" || unifiedDiffOutput != "" {
+				status = domain.StatusChanges
 				summary = fmt.Sprintf("Changes detected in my-app for environment %s.", env.Name)
+			} else {
+				status = domain.StatusSuccess
+				summary = "No changes detected."
 			}
 
 			result := domain.DiffResult{
@@ -80,14 +84,14 @@ func TestIntegration_FullDiffFlow(t *testing.T) {
 				Environment:  env.Name,
 				BaseRef:      baseRef,
 				HeadRef:      headRef,
-				HasChanges:   hasChanges,
+				Status:       status,
 				UnifiedDiff:  unifiedDiffOutput,
 				SemanticDiff: semanticDiffOutput,
 				Summary:      summary,
 			}
 			allResults = append(allResults, result)
 
-			if !hasChanges {
+			if status != domain.StatusChanges {
 				t.Fatal("expected changes but got none")
 			}
 		})
@@ -117,7 +121,7 @@ func formatCheckRunMarkdown(results []domain.DiffResult) string {
 	changed := 0
 	unchanged := 0
 	for _, r := range results {
-		if r.HasChanges {
+		if r.Status == domain.StatusChanges {
 			changed++
 		} else {
 			unchanged++
@@ -144,7 +148,7 @@ func formatCheckRunMarkdown(results []domain.DiffResult) string {
 		}
 
 		status := "No Changes"
-		if r.HasChanges {
+		if r.Status == domain.StatusChanges {
 			status = "Changed"
 		}
 
@@ -180,7 +184,7 @@ func formatPRComment(results []domain.DiffResult) string {
 	sb.WriteString("|-------|-------------|--------|\n")
 	for _, r := range results {
 		status := "No Changes"
-		if r.HasChanges {
+		if r.Status == domain.StatusChanges {
 			status = "Changed"
 		}
 		fmt.Fprintf(&sb, "| %s | %s | %s |\n", r.ChartName, r.Environment, status)
@@ -190,7 +194,7 @@ func formatPRComment(results []domain.DiffResult) string {
 	// Detail sections - prefer semantic diff in PR comments
 	for _, r := range results {
 		fmt.Fprintf(&sb, "### %s/%s\n", r.ChartName, r.Environment)
-		if !r.HasChanges {
+		if r.Status != domain.StatusChanges {
 			sb.WriteString("No changes detected.\n\n")
 			continue
 		}
@@ -264,17 +268,21 @@ func TestIntegration_NewChart(t *testing.T) {
 				t.Fatalf("rendering head for %s: %v", env.Name, err)
 			}
 
-			baseName := domain.FormatDiffLabel("new-chart", env.Name, baseRef)
-			headName := domain.FormatDiffLabel("new-chart", env.Name, headRef)
+			baseName := domain.DiffLabel("new-chart", env.Name, baseRef)
+			headName := domain.DiffLabel("new-chart", env.Name, headRef)
 
 			// Compute both diffs
 			semanticDiffOutput := semanticDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
 			unifiedDiffOutput := unifiedDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
 
-			hasChanges := semanticDiffOutput != "" || unifiedDiffOutput != ""
-			summary := "No changes detected."
-			if hasChanges {
+			var status domain.Status
+			var summary string
+			if semanticDiffOutput != "" || unifiedDiffOutput != "" {
+				status = domain.StatusChanges
 				summary = fmt.Sprintf("Changes detected in new-chart for environment %s.", env.Name)
+			} else {
+				status = domain.StatusSuccess
+				summary = "No changes detected."
 			}
 
 			result := domain.DiffResult{
@@ -282,14 +290,14 @@ func TestIntegration_NewChart(t *testing.T) {
 				Environment:  env.Name,
 				BaseRef:      baseRef,
 				HeadRef:      headRef,
-				HasChanges:   hasChanges,
+				Status:       status,
 				UnifiedDiff:  unifiedDiffOutput,
 				SemanticDiff: semanticDiffOutput,
 				Summary:      summary,
 			}
 			allResults = append(allResults, result)
 
-			if !hasChanges {
+			if status != domain.StatusChanges {
 				t.Fatal("expected changes but got none (new chart should show all additions)")
 			}
 		})

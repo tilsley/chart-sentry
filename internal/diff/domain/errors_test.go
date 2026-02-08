@@ -37,19 +37,9 @@ func TestIsNotFound(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "generic error with 'not found' message",
+			name: "generic error without NotFoundError",
 			err:  errors.New("file not found in archive"),
-			want: true,
-		},
-		{
-			name: "generic error with 'no such file' message",
-			err:  errors.New("no such file or directory"),
-			want: true,
-		},
-		{
-			name: "generic error with '404' message",
-			err:  errors.New("HTTP 404 Not Found"),
-			want: true,
+			want: false,
 		},
 		{
 			name: "unrelated error",

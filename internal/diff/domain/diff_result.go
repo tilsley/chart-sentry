@@ -1,15 +1,5 @@
 package domain
 
-// PRContext holds the details of a pull request event.
-type PRContext struct {
-	Owner    string
-	Repo     string
-	PRNumber int
-	BaseRef  string
-	HeadRef  string
-	HeadSHA  string
-}
-
 // Status represents the outcome of a diff operation.
 type Status int
 
@@ -19,6 +9,20 @@ const (
 	StatusError                  // Error occurred during diff
 )
 
+// String returns the string representation of the Status.
+func (s Status) String() string {
+	switch s {
+	case StatusSuccess:
+		return "success"
+	case StatusChanges:
+		return "changes"
+	case StatusError:
+		return "error"
+	default:
+		return "unknown"
+	}
+}
+
 // DiffResult represents the diff output for a single chart + environment pair.
 type DiffResult struct {
 	ChartName    string
@@ -26,7 +30,6 @@ type DiffResult struct {
 	BaseRef      string
 	HeadRef      string
 	Status       Status // Outcome of the diff operation
-	HasChanges   bool   // Deprecated: use Status instead
 	UnifiedDiff  string // Traditional line-based diff (go-difflib)
 	SemanticDiff string // Semantic YAML diff (dyff) - may be empty if dyff unavailable
 	Summary      string // Human-readable summary (or error message if Status == StatusError)
@@ -56,9 +59,9 @@ func CountByStatus(results []DiffResult) (success, changes, errors int) {
 	return
 }
 
-// FormatDiffLabel creates a display name for a diff comparison.
+// DiffLabel creates an identifier for a diff comparison.
 // Example: "my-app/prod (main)"
-func FormatDiffLabel(chartName, envName, ref string) string {
+func DiffLabel(chartName, envName, ref string) string {
 	return chartName + "/" + envName + " (" + ref + ")"
 }
 

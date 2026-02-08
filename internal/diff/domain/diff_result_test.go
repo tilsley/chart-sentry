@@ -123,7 +123,7 @@ func TestCountByStatus(t *testing.T) {
 	}
 }
 
-func TestFormatDiffLabel(t *testing.T) {
+func TestDiffLabel(t *testing.T) {
 	tests := []struct {
 		name      string
 		chartName string
@@ -156,9 +156,9 @@ func TestFormatDiffLabel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := FormatDiffLabel(tt.chartName, tt.envName, tt.ref)
+			got := DiffLabel(tt.chartName, tt.envName, tt.ref)
 			if got != tt.want {
-				t.Errorf("FormatDiffLabel() = %q, want %q", got, tt.want)
+				t.Errorf("DiffLabel() = %q, want %q", got, tt.want)
 			}
 		})
 	}

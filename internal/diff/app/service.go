@@ -105,9 +105,8 @@ func (s *DiffService) processChart(ctx context.Context, pr domain.PRContext, cha
 				Environment: "all",
 				BaseRef:     pr.BaseRef,
 				HeadRef:     pr.HeadRef,
-				Status:      domain.StatusError,
-				HasChanges:  false,
-				Summary:     fmt.Sprintf("❌ Error fetching base chart: %s", err),
+				Status:  domain.StatusError,
+				Summary: fmt.Sprintf("❌ Error fetching base chart: %s", err),
 			}}
 		}
 	}
@@ -122,9 +121,8 @@ func (s *DiffService) processChart(ctx context.Context, pr domain.PRContext, cha
 			Environment: "all",
 			BaseRef:     pr.BaseRef,
 			HeadRef:     pr.HeadRef,
-			Status:      domain.StatusError,
-			HasChanges:  false,
-			Summary:     fmt.Sprintf("❌ Error fetching head chart: %s", err),
+			Status:  domain.StatusError,
+			Summary: fmt.Sprintf("❌ Error fetching head chart: %s", err),
 		}}
 	}
 	defer headCleanup()
@@ -138,9 +136,8 @@ func (s *DiffService) processChart(ctx context.Context, pr domain.PRContext, cha
 			Environment: "all",
 			BaseRef:     pr.BaseRef,
 			HeadRef:     pr.HeadRef,
-			Status:      domain.StatusError,
-			HasChanges:  false,
-			Summary:     fmt.Sprintf("❌ Error discovering environments: %s", err),
+			Status:  domain.StatusError,
+			Summary: fmt.Sprintf("❌ Error discovering environments: %s", err),
 		}}
 	}
 
@@ -165,13 +162,12 @@ func (s *DiffService) processChart(ctx context.Context, pr domain.PRContext, cha
 				Environment: env.Name,
 				BaseRef:     pr.BaseRef,
 				HeadRef:     pr.HeadRef,
-				Status:      domain.StatusError,
-				HasChanges:  false,
-				Summary:     fmt.Sprintf("❌ Error computing diff: %s", err),
+				Status:  domain.StatusError,
+				Summary: fmt.Sprintf("❌ Error computing diff: %s", err),
 			})
 			continue
 		}
-		s.logger.Info("appending diff result", "chart", chartName, "env", env.Name, "hasChanges", result.HasChanges)
+		s.logger.Info("appending diff result", "chart", chartName, "env", env.Name, "status", result.Status)
 		results = append(results, result)
 	}
 
@@ -201,8 +197,8 @@ func (s *DiffService) diffChartEnv(ctx context.Context, pr domain.PRContext, cha
 	s.logger.Info("head manifest rendered", "chart", chartName, "env", env.Name, "size", len(headManifest))
 
 	s.logger.Info("computing diffs", "chart", chartName, "env", env.Name)
-	baseName := domain.FormatDiffLabel(chartName, env.Name, pr.BaseRef)
-	headName := domain.FormatDiffLabel(chartName, env.Name, pr.HeadRef)
+	baseName := domain.DiffLabel(chartName, env.Name, pr.BaseRef)
+	headName := domain.DiffLabel(chartName, env.Name, pr.HeadRef)
 
 	// Compute semantic diff (dyff) - may be empty if dyff not available
 	semanticDiff := s.semanticDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
@@ -212,11 +208,10 @@ func (s *DiffService) diffChartEnv(ctx context.Context, pr domain.PRContext, cha
 	unifiedDiff := s.unifiedDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
 	s.logger.Info("unified diff computed", "chart", chartName, "env", env.Name, "size", len(unifiedDiff))
 
-	hasChanges := unifiedDiff != "" || semanticDiff != ""
 	var status domain.Status
 	var summary string
 
-	if hasChanges {
+	if unifiedDiff != "" || semanticDiff != "" {
 		status = domain.StatusChanges
 		summary = fmt.Sprintf("Changes detected in %s for environment %s.", chartName, env.Name)
 	} else {
@@ -230,7 +225,6 @@ func (s *DiffService) diffChartEnv(ctx context.Context, pr domain.PRContext, cha
 		BaseRef:      pr.BaseRef,
 		HeadRef:      pr.HeadRef,
 		Status:       status,
-		HasChanges:   hasChanges,
 		UnifiedDiff:  unifiedDiff,
 		SemanticDiff: semanticDiff,
 		Summary:      summary,

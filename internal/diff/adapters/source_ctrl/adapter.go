@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	gogithub "github.com/google/go-github/v68/github"
+
+	"github.com/nathantilsley/chart-sentry/internal/diff/domain"
 )
 
 // Adapter implements ports.SourceControlPort by downloading a repo
@@ -80,7 +82,8 @@ func (a *Adapter) FetchChartFiles(ctx context.Context, owner, repo, ref, chartPa
 
 	if _, err := os.Stat(chartDir); err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("chart path %q not found in archive: %w", chartPath, err)
+		// Wrap with NotFoundError so service can detect new charts
+		return "", nil, domain.NewNotFoundError(chartPath, ref)
 	}
 
 	return chartDir, cleanup, nil

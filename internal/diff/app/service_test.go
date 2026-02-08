@@ -19,7 +19,7 @@ type mockSourceControl struct {
 func (m *mockSourceControl) FetchChartFiles(_ context.Context, _, _, ref, chartPath string) (string, func(), error) {
 	key := ref + ":" + chartPath
 	if !m.charts[key] {
-		return "", nil, fmt.Errorf("chart path %q not found in archive: stat /tmp/test/%s: no such file or directory", chartPath, chartPath)
+		return "", nil, domain.NewNotFoundError(chartPath, ref)
 	}
 	// Return a dummy path - won't actually be used in this test
 	return "/tmp/dummy", func() {}, nil
@@ -178,8 +178,8 @@ func TestService_NewChartNotInBase(t *testing.T) {
 		t.Errorf("should not have error result anymore, but got: %s", result.Summary)
 	}
 
-	if !result.HasChanges {
-		t.Error("expected changes (new chart should show all additions)")
+	if result.Status != domain.StatusChanges {
+		t.Errorf("expected StatusChanges, got %v (new chart should show all additions)", result.Status)
 	}
 
 	if !strings.Contains(result.UnifiedDiff, "+") {
@@ -188,7 +188,7 @@ func TestService_NewChartNotInBase(t *testing.T) {
 
 	t.Logf("✓ Test passes: new chart handled correctly")
 	t.Logf("   Result summary: %s", result.Summary)
-	t.Logf("   Has changes: %v", result.HasChanges)
+	t.Logf("   Status: %v", result.Status)
 }
 
 func TestExtractChartNames(t *testing.T) {
