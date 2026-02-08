@@ -45,28 +45,34 @@ func (a *Adapter) ComputeDiff(baseName, headName string, base, head []byte) stri
 	}
 
 	// Run dyff between base.yaml head.yaml
-	// Note: --color=off because GitHub markdown doesn't render ANSI escape codes
-	cmd := exec.Command(dyffPath, "between", "--color=off", baseFile, headFile)
+	// --color=off: GitHub markdown doesn't render ANSI escape codes
+	// --set-exit-code: Makes dyff return 0 for no changes, 1 for changes, 255 for errors
+	cmd := exec.Command(dyffPath, "between", "--color=off", "--set-exit-code", baseFile, headFile)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	// dyff returns exit code 1 when differences exist, so we don't fail on non-zero
-	_ = cmd.Run()
+	err = cmd.Run()
 
-	output := stdout.String()
-	if output == "" && stderr.Len() > 0 {
-		// dyff failed, return empty (caller should use fallback)
+	// Check exit code to determine if changes exist
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		exitCode := exitErr.ExitCode()
+		if exitCode == 1 {
+			// Exit code 1 = differences detected (expected)
+		} else {
+			// Exit code 255 or other = error, return empty (caller uses fallback)
+			return ""
+		}
+	} else if err != nil {
+		// Command failed to run, return empty (caller uses fallback)
+		return ""
+	} else {
+		// Exit code 0 = no differences, return empty string
 		return ""
 	}
 
 	// Clean up the output to remove banner and temp file paths
-	output = cleanDyffOutput(output, tmpDir)
-
-	// If no actual changes after cleaning, return empty string
-	if strings.TrimSpace(output) == "" {
-		return ""
-	}
+	output := cleanDyffOutput(stdout.String(), tmpDir)
 
 	// Format with file names
 	var sb strings.Builder
