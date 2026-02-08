@@ -63,6 +63,11 @@ func (a *Adapter) ComputeDiff(baseName, headName string, base, head []byte) stri
 	// Clean up the output to remove banner and temp file paths
 	output = cleanDyffOutput(output, tmpDir)
 
+	// If no actual changes after cleaning, return empty string
+	if strings.TrimSpace(output) == "" {
+		return ""
+	}
+
 	// Format with file names
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "--- %s\n", baseName)

@@ -40,33 +40,9 @@ data:
 
 	diff := adapter.ComputeDiff("test (main)", "test (feature)", yaml, yaml)
 
-	// dyff outputs headers even for identical content, which is fine
-	// Just verify it contains the file names
-	if !strings.Contains(diff, "test (main)") {
-		t.Error("Expected diff to contain base name")
-	}
-	if !strings.Contains(diff, "test (feature)") {
-		t.Error("Expected diff to contain head name")
-	}
-
-	// The key point: no actual change indicators
-	lines := strings.Split(diff, "\n")
-	hasChanges := false
-	for _, line := range lines {
-		// Skip the header lines
-		if strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++") {
-			continue
-		}
-		// Check for actual change content
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
-			hasChanges = true
-			break
-		}
-	}
-
-	if hasChanges {
-		t.Errorf("Expected no actual changes for identical YAML, but got content:\n%s", diff)
+	// For identical content, dyff should return empty string (no changes)
+	if diff != "" {
+		t.Errorf("Expected empty diff for identical YAML, but got:\n%s", diff)
 	}
 }
 
