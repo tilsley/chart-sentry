@@ -27,7 +27,6 @@ type Config struct {
 
 // Load reads configuration from environment variables, validates required
 // fields, and applies defaults for Port (8080) and LogLevel ("info").
-//
 func Load() (Config, error) {
 	cfg := Config{
 		Port:     8080,

@@ -17,20 +17,20 @@ func TestLoad(t *testing.T) {
 		{
 			name: "all required env vars set",
 			setup: func() {
-				os.Setenv("WEBHOOK_SECRET", "test-secret")
-				os.Setenv("GITHUB_APP_ID", "123456")
-				os.Setenv("GITHUB_INSTALLATION_ID", "789012")
-				os.Setenv("GITHUB_PRIVATE_KEY", "test-key")
-				os.Setenv("PORT", "9000")
-				os.Setenv("LOG_LEVEL", "debug")
+				_ = os.Setenv("WEBHOOK_SECRET", "test-secret")
+				_ = os.Setenv("GITHUB_APP_ID", "123456")
+				_ = os.Setenv("GITHUB_INSTALLATION_ID", "789012")
+				_ = os.Setenv("GITHUB_PRIVATE_KEY", "test-key")
+				_ = os.Setenv("PORT", "9000")
+				_ = os.Setenv("LOG_LEVEL", "debug")
 			},
 			cleanup: func() {
-				os.Unsetenv("WEBHOOK_SECRET")
-				os.Unsetenv("GITHUB_APP_ID")
-				os.Unsetenv("GITHUB_INSTALLATION_ID")
-				os.Unsetenv("GITHUB_PRIVATE_KEY")
-				os.Unsetenv("PORT")
-				os.Unsetenv("LOG_LEVEL")
+				_ = os.Unsetenv("WEBHOOK_SECRET")
+				_ = os.Unsetenv("GITHUB_APP_ID")
+				_ = os.Unsetenv("GITHUB_INSTALLATION_ID")
+				_ = os.Unsetenv("GITHUB_PRIVATE_KEY")
+				_ = os.Unsetenv("PORT")
+				_ = os.Unsetenv("LOG_LEVEL")
 			},
 			want: Config{
 				Port:                 9000,
@@ -45,17 +45,17 @@ func TestLoad(t *testing.T) {
 		{
 			name: "defaults for optional vars",
 			setup: func() {
-				os.Setenv("WEBHOOK_SECRET", "test-secret")
-				os.Setenv("GITHUB_APP_ID", "123456")
-				os.Setenv("GITHUB_INSTALLATION_ID", "789012")
-				os.Setenv("GITHUB_PRIVATE_KEY", "test-key")
+				_ = os.Setenv("WEBHOOK_SECRET", "test-secret")
+				_ = os.Setenv("GITHUB_APP_ID", "123456")
+				_ = os.Setenv("GITHUB_INSTALLATION_ID", "789012")
+				_ = os.Setenv("GITHUB_PRIVATE_KEY", "test-key")
 				// PORT and LOG_LEVEL not set
 			},
 			cleanup: func() {
-				os.Unsetenv("WEBHOOK_SECRET")
-				os.Unsetenv("GITHUB_APP_ID")
-				os.Unsetenv("GITHUB_INSTALLATION_ID")
-				os.Unsetenv("GITHUB_PRIVATE_KEY")
+				_ = os.Unsetenv("WEBHOOK_SECRET")
+				_ = os.Unsetenv("GITHUB_APP_ID")
+				_ = os.Unsetenv("GITHUB_INSTALLATION_ID")
+				_ = os.Unsetenv("GITHUB_PRIVATE_KEY")
 			},
 			want: Config{
 				Port:                 8080, // Default
@@ -70,14 +70,14 @@ func TestLoad(t *testing.T) {
 		{
 			name: "missing WEBHOOK_SECRET",
 			setup: func() {
-				os.Setenv("GITHUB_APP_ID", "123456")
-				os.Setenv("GITHUB_INSTALLATION_ID", "789012")
-				os.Setenv("GITHUB_PRIVATE_KEY", "test-key")
+				_ = os.Setenv("GITHUB_APP_ID", "123456")
+				_ = os.Setenv("GITHUB_INSTALLATION_ID", "789012")
+				_ = os.Setenv("GITHUB_PRIVATE_KEY", "test-key")
 			},
 			cleanup: func() {
-				os.Unsetenv("GITHUB_APP_ID")
-				os.Unsetenv("GITHUB_INSTALLATION_ID")
-				os.Unsetenv("GITHUB_PRIVATE_KEY")
+				_ = os.Unsetenv("GITHUB_APP_ID")
+				_ = os.Unsetenv("GITHUB_INSTALLATION_ID")
+				_ = os.Unsetenv("GITHUB_PRIVATE_KEY")
 			},
 			wantErr: true,
 			errMsg:  "WEBHOOK_SECRET",
@@ -85,14 +85,14 @@ func TestLoad(t *testing.T) {
 		{
 			name: "missing GITHUB_APP_ID",
 			setup: func() {
-				os.Setenv("WEBHOOK_SECRET", "test-secret")
-				os.Setenv("GITHUB_INSTALLATION_ID", "789012")
-				os.Setenv("GITHUB_PRIVATE_KEY", "test-key")
+				_ = os.Setenv("WEBHOOK_SECRET", "test-secret")
+				_ = os.Setenv("GITHUB_INSTALLATION_ID", "789012")
+				_ = os.Setenv("GITHUB_PRIVATE_KEY", "test-key")
 			},
 			cleanup: func() {
-				os.Unsetenv("WEBHOOK_SECRET")
-				os.Unsetenv("GITHUB_INSTALLATION_ID")
-				os.Unsetenv("GITHUB_PRIVATE_KEY")
+				_ = os.Unsetenv("WEBHOOK_SECRET")
+				_ = os.Unsetenv("GITHUB_INSTALLATION_ID")
+				_ = os.Unsetenv("GITHUB_PRIVATE_KEY")
 			},
 			wantErr: true,
 			errMsg:  "GITHUB_APP_ID",
@@ -100,14 +100,14 @@ func TestLoad(t *testing.T) {
 		{
 			name: "missing GITHUB_INSTALLATION_ID",
 			setup: func() {
-				os.Setenv("WEBHOOK_SECRET", "test-secret")
-				os.Setenv("GITHUB_APP_ID", "123456")
-				os.Setenv("GITHUB_PRIVATE_KEY", "test-key")
+				_ = os.Setenv("WEBHOOK_SECRET", "test-secret")
+				_ = os.Setenv("GITHUB_APP_ID", "123456")
+				_ = os.Setenv("GITHUB_PRIVATE_KEY", "test-key")
 			},
 			cleanup: func() {
-				os.Unsetenv("WEBHOOK_SECRET")
-				os.Unsetenv("GITHUB_APP_ID")
-				os.Unsetenv("GITHUB_PRIVATE_KEY")
+				_ = os.Unsetenv("WEBHOOK_SECRET")
+				_ = os.Unsetenv("GITHUB_APP_ID")
+				_ = os.Unsetenv("GITHUB_PRIVATE_KEY")
 			},
 			wantErr: true,
 			errMsg:  "GITHUB_INSTALLATION_ID",
@@ -115,14 +115,14 @@ func TestLoad(t *testing.T) {
 		{
 			name: "missing GITHUB_PRIVATE_KEY",
 			setup: func() {
-				os.Setenv("WEBHOOK_SECRET", "test-secret")
-				os.Setenv("GITHUB_APP_ID", "123456")
-				os.Setenv("GITHUB_INSTALLATION_ID", "789012")
+				_ = os.Setenv("WEBHOOK_SECRET", "test-secret")
+				_ = os.Setenv("GITHUB_APP_ID", "123456")
+				_ = os.Setenv("GITHUB_INSTALLATION_ID", "789012")
 			},
 			cleanup: func() {
-				os.Unsetenv("WEBHOOK_SECRET")
-				os.Unsetenv("GITHUB_APP_ID")
-				os.Unsetenv("GITHUB_INSTALLATION_ID")
+				_ = os.Unsetenv("WEBHOOK_SECRET")
+				_ = os.Unsetenv("GITHUB_APP_ID")
+				_ = os.Unsetenv("GITHUB_INSTALLATION_ID")
 			},
 			wantErr: true,
 			errMsg:  "GITHUB_PRIVATE_KEY",
@@ -130,18 +130,18 @@ func TestLoad(t *testing.T) {
 		{
 			name: "invalid PORT",
 			setup: func() {
-				os.Setenv("WEBHOOK_SECRET", "test-secret")
-				os.Setenv("GITHUB_APP_ID", "123456")
-				os.Setenv("GITHUB_INSTALLATION_ID", "789012")
-				os.Setenv("GITHUB_PRIVATE_KEY", "test-key")
-				os.Setenv("PORT", "not-a-number")
+				_ = os.Setenv("WEBHOOK_SECRET", "test-secret")
+				_ = os.Setenv("GITHUB_APP_ID", "123456")
+				_ = os.Setenv("GITHUB_INSTALLATION_ID", "789012")
+				_ = os.Setenv("GITHUB_PRIVATE_KEY", "test-key")
+				_ = os.Setenv("PORT", "not-a-number")
 			},
 			cleanup: func() {
-				os.Unsetenv("WEBHOOK_SECRET")
-				os.Unsetenv("GITHUB_APP_ID")
-				os.Unsetenv("GITHUB_INSTALLATION_ID")
-				os.Unsetenv("GITHUB_PRIVATE_KEY")
-				os.Unsetenv("PORT")
+				_ = os.Unsetenv("WEBHOOK_SECRET")
+				_ = os.Unsetenv("GITHUB_APP_ID")
+				_ = os.Unsetenv("GITHUB_INSTALLATION_ID")
+				_ = os.Unsetenv("GITHUB_PRIVATE_KEY")
+				_ = os.Unsetenv("PORT")
 			},
 			wantErr: true,
 			errMsg:  "PORT",
@@ -149,16 +149,16 @@ func TestLoad(t *testing.T) {
 		{
 			name: "invalid GITHUB_APP_ID",
 			setup: func() {
-				os.Setenv("WEBHOOK_SECRET", "test-secret")
-				os.Setenv("GITHUB_APP_ID", "not-a-number")
-				os.Setenv("GITHUB_INSTALLATION_ID", "789012")
-				os.Setenv("GITHUB_PRIVATE_KEY", "test-key")
+				_ = os.Setenv("WEBHOOK_SECRET", "test-secret")
+				_ = os.Setenv("GITHUB_APP_ID", "not-a-number")
+				_ = os.Setenv("GITHUB_INSTALLATION_ID", "789012")
+				_ = os.Setenv("GITHUB_PRIVATE_KEY", "test-key")
 			},
 			cleanup: func() {
-				os.Unsetenv("WEBHOOK_SECRET")
-				os.Unsetenv("GITHUB_APP_ID")
-				os.Unsetenv("GITHUB_INSTALLATION_ID")
-				os.Unsetenv("GITHUB_PRIVATE_KEY")
+				_ = os.Unsetenv("WEBHOOK_SECRET")
+				_ = os.Unsetenv("GITHUB_APP_ID")
+				_ = os.Unsetenv("GITHUB_INSTALLATION_ID")
+				_ = os.Unsetenv("GITHUB_PRIVATE_KEY")
 			},
 			wantErr: true,
 			errMsg:  "GITHUB_APP_ID",
@@ -166,16 +166,16 @@ func TestLoad(t *testing.T) {
 		{
 			name: "invalid GITHUB_INSTALLATION_ID",
 			setup: func() {
-				os.Setenv("WEBHOOK_SECRET", "test-secret")
-				os.Setenv("GITHUB_APP_ID", "123456")
-				os.Setenv("GITHUB_INSTALLATION_ID", "not-a-number")
-				os.Setenv("GITHUB_PRIVATE_KEY", "test-key")
+				_ = os.Setenv("WEBHOOK_SECRET", "test-secret")
+				_ = os.Setenv("GITHUB_APP_ID", "123456")
+				_ = os.Setenv("GITHUB_INSTALLATION_ID", "not-a-number")
+				_ = os.Setenv("GITHUB_PRIVATE_KEY", "test-key")
 			},
 			cleanup: func() {
-				os.Unsetenv("WEBHOOK_SECRET")
-				os.Unsetenv("GITHUB_APP_ID")
-				os.Unsetenv("GITHUB_INSTALLATION_ID")
-				os.Unsetenv("GITHUB_PRIVATE_KEY")
+				_ = os.Unsetenv("WEBHOOK_SECRET")
+				_ = os.Unsetenv("GITHUB_APP_ID")
+				_ = os.Unsetenv("GITHUB_INSTALLATION_ID")
+				_ = os.Unsetenv("GITHUB_PRIVATE_KEY")
 			},
 			wantErr: true,
 			errMsg:  "GITHUB_INSTALLATION_ID",
@@ -215,7 +215,11 @@ func TestLoad(t *testing.T) {
 				t.Errorf("Load().GitHubAppID = %v, want %v", got.GitHubAppID, tt.want.GitHubAppID)
 			}
 			if got.GitHubInstallationID != tt.want.GitHubInstallationID {
-				t.Errorf("Load().GitHubInstallationID = %v, want %v", got.GitHubInstallationID, tt.want.GitHubInstallationID)
+				t.Errorf(
+					"Load().GitHubInstallationID = %v, want %v",
+					got.GitHubInstallationID,
+					tt.want.GitHubInstallationID,
+				)
 			}
 			if got.GitHubPrivateKey != tt.want.GitHubPrivateKey {
 				t.Errorf("Load().GitHubPrivateKey = %v, want %v", got.GitHubPrivateKey, tt.want.GitHubPrivateKey)
@@ -228,7 +232,8 @@ func TestLoad(t *testing.T) {
 }
 
 func contains(s, substr string) bool {
-	return len(s) > 0 && len(substr) > 0 && (s == substr || len(s) >= len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsInner(s, substr)))
+	return len(s) > 0 && len(substr) > 0 &&
+		(s == substr || len(s) >= len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsInner(s, substr)))
 }
 
 func containsInner(s, substr string) bool {

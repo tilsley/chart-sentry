@@ -52,7 +52,15 @@ func (a *Adapter) ComputeDiff(baseName, headName string, base, head []byte) stri
 	// --color=off: GitHub markdown doesn't render ANSI escape codes
 	// --set-exit-code: Makes dyff return 0 for no changes, 1 for changes, 255 for errors
 	//nolint:gosec // G204: baseFile and headFile are temp files we created, not user input
-	cmd := exec.CommandContext(context.Background(), dyffPath, "between", "--color=off", "--set-exit-code", baseFile, headFile)
+	cmd := exec.CommandContext(
+		context.Background(),
+		dyffPath,
+		"between",
+		"--color=off",
+		"--set-exit-code",
+		baseFile,
+		headFile,
+	)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -100,7 +108,8 @@ func cleanDyffOutput(output, tmpDir string) string {
 			strings.Contains(trimmed, "| (_| | |_| |  _|  _|") ||
 			strings.Contains(trimmed, "\\__,_|\\__, |_| |_|") ||
 			strings.Contains(trimmed, "|___/") ||
-			strings.Contains(line, "returned") && (strings.Contains(line, "difference") || strings.Contains(line, "differences")) {
+			strings.Contains(line, "returned") &&
+				(strings.Contains(line, "difference") || strings.Contains(line, "differences")) {
 			continue
 		}
 

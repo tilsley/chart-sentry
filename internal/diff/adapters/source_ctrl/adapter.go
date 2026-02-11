@@ -35,9 +35,16 @@ func New(client *gogithub.Client) *Adapter {
 func (a *Adapter) FetchChartFiles(ctx context.Context, owner, repo, ref, chartPath string) (string, func(), error) {
 	client := a.client
 
-	archiveURL, _, err := client.Repositories.GetArchiveLink(ctx, owner, repo, gogithub.Tarball, &gogithub.RepositoryContentGetOptions{
-		Ref: ref,
-	}, 10)
+	archiveURL, _, err := client.Repositories.GetArchiveLink(
+		ctx,
+		owner,
+		repo,
+		gogithub.Tarball,
+		&gogithub.RepositoryContentGetOptions{
+			Ref: ref,
+		},
+		10,
+	)
 	if err != nil {
 		return "", nil, fmt.Errorf("getting archive link: %w", err)
 	}

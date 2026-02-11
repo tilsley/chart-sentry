@@ -56,7 +56,11 @@ func TestAdapter_DiscoverEnvironments(t *testing.T) {
 				if err := os.MkdirAll(envDir, 0o700); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(filepath.Join(envDir, "prod-values.yaml"), []byte("replicas: 3"), 0o600); err != nil {
+				if err := os.WriteFile(
+					filepath.Join(envDir, "prod-values.yaml"),
+					[]byte("replicas: 3"),
+					0o600,
+				); err != nil {
 					t.Fatal(err)
 				}
 				return chartDir
@@ -148,7 +152,13 @@ func TestAdapter_DiscoverEnvironments(t *testing.T) {
 			}
 
 			if len(got) != len(tt.want) {
-				t.Fatalf("DiscoverEnvironments() got %d environments, want %d\nGot: %+v\nWant: %+v", len(got), len(tt.want), got, tt.want)
+				t.Fatalf(
+					"DiscoverEnvironments() got %d environments, want %d\nGot: %+v\nWant: %+v",
+					len(got),
+					len(tt.want),
+					got,
+					tt.want,
+				)
 			}
 
 			for i := range got {
@@ -156,12 +166,23 @@ func TestAdapter_DiscoverEnvironments(t *testing.T) {
 					t.Errorf("Environment[%d].Name = %v, want %v", i, got[i].Name, tt.want[i].Name)
 				}
 				if len(got[i].ValueFiles) != len(tt.want[i].ValueFiles) {
-					t.Errorf("Environment[%d].ValueFiles length = %v, want %v", i, len(got[i].ValueFiles), len(tt.want[i].ValueFiles))
+					t.Errorf(
+						"Environment[%d].ValueFiles length = %v, want %v",
+						i,
+						len(got[i].ValueFiles),
+						len(tt.want[i].ValueFiles),
+					)
 					continue
 				}
 				for j := range got[i].ValueFiles {
 					if got[i].ValueFiles[j] != tt.want[i].ValueFiles[j] {
-						t.Errorf("Environment[%d].ValueFiles[%d] = %v, want %v", i, j, got[i].ValueFiles[j], tt.want[i].ValueFiles[j])
+						t.Errorf(
+							"Environment[%d].ValueFiles[%d] = %v, want %v",
+							i,
+							j,
+							got[i].ValueFiles[j],
+							tt.want[i].ValueFiles[j],
+						)
 					}
 				}
 			}

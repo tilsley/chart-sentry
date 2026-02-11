@@ -60,8 +60,16 @@ func parseCliConfig() (cliConfig, error) {
 	var (
 		token      = flag.String("token", "", "GitHub personal access token (or use GITHUB_TOKEN env var)")
 		webhookURL = flag.String("url", "http://localhost:8080/webhook", "Webhook URL")
-		secret     = flag.String("secret", "", "Webhook secret for signing (read from WEBHOOK_SECRET env var if not set)")
-		installID  = flag.Int64("installation-id", 0, "GitHub App installation ID (read from GITHUB_INSTALLATION_ID env var if not set)")
+		secret     = flag.String(
+			"secret",
+			"",
+			"Webhook secret for signing (read from WEBHOOK_SECRET env var if not set)",
+		)
+		installID = flag.Int64(
+			"installation-id",
+			0,
+			"GitHub App installation ID (read from GITHUB_INSTALLATION_ID env var if not set)",
+		)
 	)
 	flag.Parse()
 
@@ -89,7 +97,9 @@ func parseCliConfig() (cliConfig, error) {
 		}
 	}
 	if cfg.installID == 0 {
-		return cfg, errors.New("github App installation ID required\nProvide via -installation-id flag or GITHUB_INSTALLATION_ID env var")
+		return cfg, errors.New(
+			"github App installation ID required\nProvide via -installation-id flag or GITHUB_INSTALLATION_ID env var",
+		)
 	}
 
 	if flag.NArg() == 0 {
@@ -140,7 +150,15 @@ func buildWebhookPayload(pr *github.PullRequest, owner, repo string, prNum int, 
 	return payloadBytes
 }
 
-func sendWebhook(ctx context.Context, webhookURL, secret string, payload []byte, owner, repo string, prNum int, pr *github.PullRequest, prURL string) error {
+func sendWebhook(
+	ctx context.Context,
+	webhookURL, secret string,
+	payload []byte,
+	owner, repo string,
+	prNum int,
+	pr *github.PullRequest,
+	prURL string,
+) error {
 	signature := signPayload(payload, secret)
 
 	fmt.Printf("\nSending webhook to %s...\n", webhookURL)
@@ -199,7 +217,10 @@ func parsePRURL(url string) (string, string, int, error) {
 	matches := re.FindStringSubmatch(url)
 
 	if len(matches) != 4 {
-		return "", "", 0, fmt.Errorf("invalid PR URL format, expected: https://github.com/owner/repo/pull/123, got: %s", url)
+		return "", "", 0, fmt.Errorf(
+			"invalid PR URL format, expected: https://github.com/owner/repo/pull/123, got: %s",
+			url,
+		)
 	}
 
 	owner := matches[1]

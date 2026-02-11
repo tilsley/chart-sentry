@@ -52,7 +52,12 @@ func (a *Adapter) CreateInProgressCheck(ctx context.Context, pr domain.PRContext
 }
 
 // UpdateCheckWithResults updates an existing check run with final results.
-func (a *Adapter) UpdateCheckWithResults(ctx context.Context, pr domain.PRContext, checkRunID int64, results []domain.DiffResult) error {
+func (a *Adapter) UpdateCheckWithResults(
+	ctx context.Context,
+	pr domain.PRContext,
+	checkRunID int64,
+	results []domain.DiffResult,
+) error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	logger.Info("updating check run with results", "checkRunID", checkRunID, "numResults", len(results))
 
@@ -116,7 +121,13 @@ func (a *Adapter) deleteMatchingComments(ctx context.Context, pr domain.PRContex
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	client := a.client
 
-	comments, _, err := client.Issues.ListComments(ctx, pr.Owner, pr.Repo, pr.PRNumber, &gogithub.IssueListCommentsOptions{})
+	comments, _, err := client.Issues.ListComments(
+		ctx,
+		pr.Owner,
+		pr.Repo,
+		pr.PRNumber,
+		&gogithub.IssueListCommentsOptions{},
+	)
 	if err != nil {
 		logger.Warn("failed to list comments, continuing anyway", "error", err)
 		return
@@ -351,7 +362,9 @@ func FormatPRComment(results []domain.DiffResult) string {
 	}
 
 	sb.WriteString("---\n")
-	sb.WriteString("_Posted by [chart-val](https://github.com/nathantilsley/chart-val) — Your charts, validated before they deploy._\n")
+	sb.WriteString(
+		"_Posted by [chart-val](https://github.com/nathantilsley/chart-val) — Your charts, validated before they deploy._\n",
+	)
 
 	return sb.String()
 }

@@ -88,7 +88,8 @@ data:
 	if strings.Contains(diff, "_        __  __") {
 		t.Error("Expected dyff banner to be removed")
 	}
-	if strings.Contains(diff, "returned") && (strings.Contains(diff, "difference") || strings.Contains(diff, "differences")) {
+	if strings.Contains(diff, "returned") &&
+		(strings.Contains(diff, "difference") || strings.Contains(diff, "differences")) {
 		t.Error("Expected 'returned X differences' line to be removed")
 	}
 

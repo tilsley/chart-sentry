@@ -35,9 +35,9 @@ import (
 )
 
 const (
-	e2eTestEnvValue     = "true"
-	checkRunName        = "chart-val"
-	checkRunStatusDone  = "completed"
+	e2eTestEnvValue    = "true"
+	checkRunName       = "chart-val"
+	checkRunStatusDone = "completed"
 )
 
 // TestE2E_FullWorkflow creates a real PR, triggers diff, and verifies results.
@@ -514,7 +514,15 @@ func TestE2E_ChartWithEnvironments(t *testing.T) {
 
 	// Create draft PR
 	t.Logf("Creating draft PR")
-	prNumber, err := createDraftPR(ctx, client, owner, repo, baseBranch, testBranch, "E2E Test: Multi-Environment Chart")
+	prNumber, err := createDraftPR(
+		ctx,
+		client,
+		owner,
+		repo,
+		baseBranch,
+		testBranch,
+		"E2E Test: Multi-Environment Chart",
+	)
 	if err != nil {
 		t.Fatalf("failed to create PR: %v", err)
 	}
@@ -706,7 +714,15 @@ func TestE2E_UpdateExistingChart(t *testing.T) {
 
 	// Step 4: Create PR from feature branch to base branch (not to main!)
 	t.Logf("Creating PR from %s to %s", featureBranchName, baseBranchName)
-	prNumber, err := createDraftPR(ctx, client, owner, repo, baseBranchName, featureBranchName, "E2E Test: Update Chart Values")
+	prNumber, err := createDraftPR(
+		ctx,
+		client,
+		owner,
+		repo,
+		baseBranchName,
+		featureBranchName,
+		"E2E Test: Update Chart Values",
+	)
 	if err != nil {
 		t.Fatalf("failed to create PR: %v", err)
 	}
@@ -861,7 +877,17 @@ func setupTestServer(t *testing.T, appID, installationID int64, privateKey, webh
 	discoveryConfig := discoveredcharts.New(envDiscovery, sourceCtrl)
 
 	// Create service (no Argo in E2E tests)
-	diffService := app.NewDiffService(sourceCtrl, changedCharts, nil, discoveryConfig, helmRenderer, reporter, semanticDiff, unifiedDiff, log)
+	diffService := app.NewDiffService(
+		sourceCtrl,
+		changedCharts,
+		nil,
+		discoveryConfig,
+		helmRenderer,
+		reporter,
+		semanticDiff,
+		unifiedDiff,
+		log,
+	)
 
 	// Create webhook handler
 	webhookHandler := githubin.NewWebhookHandler(diffService, webhookSecret, log)
@@ -873,7 +899,12 @@ func setupTestServer(t *testing.T, appID, installationID int64, privateKey, webh
 	return httptest.NewServer(mux)
 }
 
-func sendWebhook(ctx context.Context, webhookURL, webhookSecret, owner, repo string, pr *github.PullRequest, installationID int64) error {
+func sendWebhook(
+	ctx context.Context,
+	webhookURL, webhookSecret, owner, repo string,
+	pr *github.PullRequest,
+	installationID int64,
+) error {
 	// Construct webhook payload
 	payload := map[string]interface{}{
 		"action": "synchronize",
@@ -980,9 +1011,15 @@ func addTestChartChanges(ctx context.Context, client *github.Client, owner, repo
 	_, _, err = client.Repositories.CreateFile(ctx, owner, repo, chartPath, opts)
 	if err != nil {
 		// If file exists, try updating it
-		existingFile, _, _, _ := client.Repositories.GetContents(ctx, owner, repo, chartPath, &github.RepositoryContentGetOptions{
-			Ref: branch,
-		})
+		existingFile, _, _, _ := client.Repositories.GetContents(
+			ctx,
+			owner,
+			repo,
+			chartPath,
+			&github.RepositoryContentGetOptions{
+				Ref: branch,
+			},
+		)
 		if existingFile != nil {
 			opts.SHA = existingFile.SHA
 			_, _, err = client.Repositories.UpdateFile(ctx, owner, repo, chartPath, opts)
@@ -1008,9 +1045,15 @@ func addTestChartChanges(ctx context.Context, client *github.Client, owner, repo
 
 	_, _, err = client.Repositories.CreateFile(ctx, owner, repo, templatePath, opts)
 	if err != nil {
-		existingFile, _, _, _ := client.Repositories.GetContents(ctx, owner, repo, templatePath, &github.RepositoryContentGetOptions{
-			Ref: branch,
-		})
+		existingFile, _, _, _ := client.Repositories.GetContents(
+			ctx,
+			owner,
+			repo,
+			templatePath,
+			&github.RepositoryContentGetOptions{
+				Ref: branch,
+			},
+		)
 		if existingFile != nil {
 			opts.SHA = existingFile.SHA
 			_, _, err = client.Repositories.UpdateFile(ctx, owner, repo, templatePath, opts)
@@ -1053,7 +1096,12 @@ func createDraftPR(ctx context.Context, client *github.Client, owner, repo, base
 	return created.GetNumber(), nil
 }
 
-func waitForCheckRuns(ctx context.Context, client *github.Client, owner, repo, ref string, timeout time.Duration) ([]*github.CheckRun, error) {
+func waitForCheckRuns(
+	ctx context.Context,
+	client *github.Client,
+	owner, repo, ref string,
+	timeout time.Duration,
+) ([]*github.CheckRun, error) {
 	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
@@ -1081,7 +1129,12 @@ func waitForCheckRuns(ctx context.Context, client *github.Client, owner, repo, r
 	return nil, errors.New("timeout waiting for check runs to complete")
 }
 
-func getPRComments(ctx context.Context, client *github.Client, owner, repo string, prNumber int) ([]*github.IssueComment, error) {
+func getPRComments(
+	ctx context.Context,
+	client *github.Client,
+	owner, repo string,
+	prNumber int,
+) ([]*github.IssueComment, error) {
 	comments, _, err := client.Issues.ListComments(ctx, owner, repo, prNumber, &github.IssueListCommentsOptions{})
 	return comments, err
 }
@@ -1170,9 +1223,15 @@ func addNonChartChanges(ctx context.Context, client *github.Client, owner, repo,
 	readmeContent := fmt.Sprintf("# Test Repository\n\nUpdated by E2E test at %s\n", time.Now().Format(time.RFC3339))
 
 	// Get existing README if it exists
-	existingFile, _, _, _ := client.Repositories.GetContents(ctx, owner, repo, readmePath, &github.RepositoryContentGetOptions{
-		Ref: branch,
-	})
+	existingFile, _, _, _ := client.Repositories.GetContents(
+		ctx,
+		owner,
+		repo,
+		readmePath,
+		&github.RepositoryContentGetOptions{
+			Ref: branch,
+		},
+	)
 
 	opts := &github.RepositoryContentFileOptions{
 		Message: github.Ptr("Update README (non-chart change)"),
@@ -1234,9 +1293,15 @@ func updateChartValues(ctx context.Context, client *github.Client, owner, repo, 
 	}
 
 	// Get existing file to get its SHA
-	existingFile, _, _, err := client.Repositories.GetContents(ctx, owner, repo, devValuesPath, &github.RepositoryContentGetOptions{
-		Ref: branch,
-	})
+	existingFile, _, _, err := client.Repositories.GetContents(
+		ctx,
+		owner,
+		repo,
+		devValuesPath,
+		&github.RepositoryContentGetOptions{
+			Ref: branch,
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("getting existing dev values: %w", err)
 	}
@@ -1260,9 +1325,15 @@ func updateChartValues(ctx context.Context, client *github.Client, owner, repo, 
 		return fmt.Errorf("reading prod values fixture: %w", err)
 	}
 
-	existingFile, _, _, err = client.Repositories.GetContents(ctx, owner, repo, prodValuesPath, &github.RepositoryContentGetOptions{
-		Ref: branch,
-	})
+	existingFile, _, _, err = client.Repositories.GetContents(
+		ctx,
+		owner,
+		repo,
+		prodValuesPath,
+		&github.RepositoryContentGetOptions{
+			Ref: branch,
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("getting existing prod values: %w", err)
 	}
