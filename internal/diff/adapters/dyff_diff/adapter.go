@@ -1,7 +1,10 @@
+// Package dyffdiff provides YAML diff computation using the dyff tool.
 package dyffdiff
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -31,7 +34,8 @@ func (a *Adapter) ComputeDiff(baseName, headName string, base, head []byte) stri
 	if err != nil {
 		return ""
 	}
-	defer os.RemoveAll(tmpDir)
+	//nolint:errcheck // Deferred temp dir cleanup, error not actionable
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Write manifests to temp files
 	baseFile := filepath.Join(tmpDir, "base.yaml")
@@ -47,7 +51,8 @@ func (a *Adapter) ComputeDiff(baseName, headName string, base, head []byte) stri
 	// Run dyff between base.yaml head.yaml
 	// --color=off: GitHub markdown doesn't render ANSI escape codes
 	// --set-exit-code: Makes dyff return 0 for no changes, 1 for changes, 255 for errors
-	cmd := exec.Command(dyffPath, "between", "--color=off", "--set-exit-code", baseFile, headFile)
+	//nolint:gosec // G204: baseFile and headFile are temp files we created, not user input
+	cmd := exec.CommandContext(context.Background(), dyffPath, "between", "--color=off", "--set-exit-code", baseFile, headFile)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -55,19 +60,12 @@ func (a *Adapter) ComputeDiff(baseName, headName string, base, head []byte) stri
 	err = cmd.Run()
 
 	// Check exit code to determine if changes exist
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		exitCode := exitErr.ExitCode()
-		if exitCode == 1 {
-			// Exit code 1 = differences detected (expected)
-		} else {
-			// Exit code 255 or other = error, return empty (caller uses fallback)
-			return ""
-		}
-	} else if err != nil {
-		// Command failed to run, return empty (caller uses fallback)
-		return ""
-	} else {
-		// Exit code 0 = no differences, return empty string
+	// Exit code 1 = differences detected (expected), continue processing
+	// Exit code 0 = no differences, return empty
+	// Other exit codes or errors = return empty (caller uses fallback)
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+		// No differences, error, or other exit code
 		return ""
 	}
 

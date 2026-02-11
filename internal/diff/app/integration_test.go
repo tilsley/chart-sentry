@@ -1,3 +1,4 @@
+// Package app provides integration tests for the diff service.
 package app
 
 import (
@@ -18,6 +19,11 @@ import (
 
 var update = flag.Bool("update", false, "update golden files")
 
+const (
+	testBranchMain = "main"
+	testdataDir    = "testdata"
+)
+
 func TestIntegration_FullDiffFlow(t *testing.T) {
 	if _, err := helmcli.New(); err != nil {
 		t.Skipf("helm not on PATH, skipping integration test: %v", err)
@@ -29,12 +35,11 @@ func TestIntegration_FullDiffFlow(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	testdataDir := filepath.Join("testdata")
 	baseChartDir := filepath.Join(testdataDir, "base", "my-app")
 	headChartDir := filepath.Join(testdataDir, "head", "my-app")
 	goldenDir := filepath.Join(testdataDir, "golden")
 
-	baseRef := "main"
+	baseRef := testBranchMain
 	headRef := "feat/update-config"
 
 	// Discover environments from head chart dir
@@ -66,6 +71,7 @@ func TestIntegration_FullDiffFlow(t *testing.T) {
 			headName := domain.DiffLabel("my-app", env.Name, headRef)
 
 			// Compute both diffs
+			//nolint:contextcheck // ComputeDiff doesn't take context parameter
 			semanticDiffOutput := semanticDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
 			unifiedDiffOutput := unifiedDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
 
@@ -76,7 +82,7 @@ func TestIntegration_FullDiffFlow(t *testing.T) {
 				summary = fmt.Sprintf("Changes detected in my-app for environment %s.", env.Name)
 			} else {
 				status = domain.StatusSuccess
-				summary = "No changes detected."
+				summary = noChangesMessage
 			}
 
 			result := domain.DiffResult{
@@ -121,13 +127,12 @@ func TestIntegration_NewChart(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	testdataDir := filepath.Join("testdata")
 	// Base chart does NOT exist - simulating new chart
 	baseChartDir := filepath.Join(testdataDir, "base", "new-chart")
 	headChartDir := filepath.Join(testdataDir, "head", "new-chart")
 	goldenDir := filepath.Join(testdataDir, "golden")
 
-	baseRef := "main"
+	baseRef := testBranchMain
 	headRef := "feat/add-new-chart"
 
 	// Check that base chart does NOT exist
@@ -169,6 +174,7 @@ func TestIntegration_NewChart(t *testing.T) {
 			headName := domain.DiffLabel("new-chart", env.Name, headRef)
 
 			// Compute both diffs
+			//nolint:contextcheck // ComputeDiff doesn't take context parameter
 			semanticDiffOutput := semanticDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
 			unifiedDiffOutput := unifiedDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
 
@@ -179,7 +185,7 @@ func TestIntegration_NewChart(t *testing.T) {
 				summary = fmt.Sprintf("Changes detected in new-chart for environment %s.", env.Name)
 			} else {
 				status = domain.StatusSuccess
-				summary = "No changes detected."
+				summary = noChangesMessage
 			}
 
 			result := domain.DiffResult{
@@ -206,15 +212,131 @@ func TestIntegration_NewChart(t *testing.T) {
 	compareOrUpdateGolden(t, goldenFile, checkRunMD)
 }
 
+// TestIntegration_ThreeChartsOneChanged tests the scenario where 3 charts are in
+// a PR but only 1 has actual changes. Verifies:
+// - Changed chart produces diff results
+// - Unchanged charts produce no-change results
+// - Check run groups changed/unchanged correctly
+// - Only the changed chart gets a PR comment
+func TestIntegration_ThreeChartsOneChanged(t *testing.T) {
+	if _, err := helmcli.New(); err != nil {
+		t.Skipf("helm not on PATH, skipping integration test: %v", err)
+	}
+
+	renderer, err := helmcli.New()
+	if err != nil {
+		t.Fatalf("creating helm adapter: %v", err)
+	}
+
+	ctx := context.Background()
+	goldenDir := filepath.Join(testdataDir, "golden")
+
+	baseRef := testBranchMain
+	headRef := "feat/update-config"
+
+	// 3 charts: my-app (changed), stable-app (unchanged), another-app (unchanged)
+	charts := []struct {
+		name       string
+		hasChanges bool
+	}{
+		{"my-app", true},
+		{"stable-app", false},
+		{"another-app", false},
+	}
+
+	discovery := envdiscovery.New()
+	semanticDiff := dyffdiff.New()
+	unifiedDiff := linediff.New()
+
+	allResults := make([]domain.DiffResult, 0, len(charts))
+	changedResults := make([]domain.DiffResult, 0, len(charts))
+
+	for _, chart := range charts {
+		baseChartDir := filepath.Join(testdataDir, "base", chart.name)
+		headChartDir := filepath.Join(testdataDir, "head", chart.name)
+
+		envs, err := discovery.DiscoverEnvironments(ctx, headChartDir)
+		if err != nil {
+			t.Fatalf("discovering environments for %s: %v", chart.name, err)
+		}
+
+		for _, env := range envs {
+			baseManifest, err := renderer.Render(ctx, baseChartDir, env.ValueFiles)
+			if err != nil {
+				t.Fatalf("rendering base for %s/%s: %v", chart.name, env.Name, err)
+			}
+
+			headManifest, err := renderer.Render(ctx, headChartDir, env.ValueFiles)
+			if err != nil {
+				t.Fatalf("rendering head for %s/%s: %v", chart.name, env.Name, err)
+			}
+
+			baseName := domain.DiffLabel(chart.name, env.Name, baseRef)
+			headName := domain.DiffLabel(chart.name, env.Name, headRef)
+
+			semanticDiffOutput := semanticDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
+			unifiedDiffOutput := unifiedDiff.ComputeDiff(baseName, headName, baseManifest, headManifest)
+
+			var status domain.Status
+			var summary string
+			if semanticDiffOutput != "" || unifiedDiffOutput != "" {
+				status = domain.StatusChanges
+				summary = fmt.Sprintf("Changes detected in %s for environment %s.", chart.name, env.Name)
+			} else {
+				status = domain.StatusSuccess
+				summary = noChangesMessage
+			}
+
+			result := domain.DiffResult{
+				ChartName:    chart.name,
+				Environment:  env.Name,
+				BaseRef:      baseRef,
+				HeadRef:      headRef,
+				Status:       status,
+				UnifiedDiff:  unifiedDiffOutput,
+				SemanticDiff: semanticDiffOutput,
+				Summary:      summary,
+			}
+			allResults = append(allResults, result)
+		}
+	}
+
+	// Verify: only my-app has changes
+	for _, r := range allResults {
+		hasChange := r.Status == domain.StatusChanges
+		isMyApp := r.ChartName == "my-app"
+
+		if hasChange && !isMyApp {
+			t.Errorf("unexpected change in %s/%s", r.ChartName, r.Environment)
+		}
+		if !hasChange && isMyApp {
+			t.Errorf("expected change in %s/%s but got none", r.ChartName, r.Environment)
+		}
+		if hasChange {
+			changedResults = append(changedResults, r)
+		}
+	}
+
+	// Check run should show all charts (changed + unchanged)
+	checkRunMD := githubout.FormatCheckRunMarkdown(allResults)
+	goldenFile := filepath.Join(goldenDir, "check-run-three-charts.md")
+	compareOrUpdateGolden(t, goldenFile, checkRunMD)
+
+	// PR comment should only be for the changed chart (my-app)
+	prComment := githubout.FormatPRComment(changedResults)
+	goldenFile = filepath.Join(goldenDir, "pr-comment-three-charts.md")
+	compareOrUpdateGolden(t, goldenFile, prComment)
+}
+
 // compareOrUpdateGolden either updates the golden file or compares against it.
 func compareOrUpdateGolden(t *testing.T, path, actual string) {
 	t.Helper()
 
 	if *update {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatalf("creating golden dir: %v", err)
 		}
-		if err := os.WriteFile(path, []byte(actual), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(actual), 0o600); err != nil {
 			t.Fatalf("writing golden file %s: %v", path, err)
 		}
 		t.Logf("updated golden file: %s", path)

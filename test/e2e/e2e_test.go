@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/google/go-github/v68/github"
 
+	discoveredcharts "github.com/nathantilsley/chart-val/internal/diff/adapters/discovered_charts"
 	dyffdiff "github.com/nathantilsley/chart-val/internal/diff/adapters/dyff_diff"
 	envdiscovery "github.com/nathantilsley/chart-val/internal/diff/adapters/env_discovery"
 	githubin "github.com/nathantilsley/chart-val/internal/diff/adapters/github_in"
@@ -32,10 +34,16 @@ import (
 	"github.com/nathantilsley/chart-val/internal/platform/logger"
 )
 
+const (
+	e2eTestEnvValue     = "true"
+	checkRunName        = "chart-val"
+	checkRunStatusDone  = "completed"
+)
+
 // TestE2E_FullWorkflow creates a real PR, triggers diff, and verifies results.
 // Requires: GITHUB_TOKEN and E2E_TEST=true environment variables.
 func TestE2E_FullWorkflow(t *testing.T) {
-	if os.Getenv("E2E_TEST") != "true" {
+	if os.Getenv("E2E_TEST") != e2eTestEnvValue {
 		t.Skip("Skipping E2E test. Set E2E_TEST=true to run.")
 	}
 
@@ -118,6 +126,10 @@ func TestE2E_FullWorkflow(t *testing.T) {
 		t.Fatalf("failed to get PR details: %v", err)
 	}
 
+	// Wait for GitHub to process the PR and compute the file diff
+	t.Logf("Waiting for GitHub to process PR...")
+	time.Sleep(5 * time.Second)
+
 	// Step 5: Send webhook to test server
 	t.Logf("Sending webhook to test server...")
 	webhookURL := testServer.URL + "/webhook"
@@ -136,13 +148,13 @@ func TestE2E_FullWorkflow(t *testing.T) {
 	t.Logf("Verifying check runs...")
 	foundChartSentry := false
 	for _, run := range checkRuns {
-		if strings.HasPrefix(run.GetName(), "chart-val:") {
+		if run.GetName() == checkRunName {
 			foundChartSentry = true
 			t.Logf("Found check run: %s (status: %s, conclusion: %s)",
 				run.GetName(), run.GetStatus(), run.GetConclusion())
 
 			// Verify status is completed
-			if run.GetStatus() != "completed" {
+			if run.GetStatus() != checkRunStatusDone {
 				t.Errorf("Expected status 'completed', got '%s'", run.GetStatus())
 			}
 
@@ -197,7 +209,7 @@ func TestE2E_FullWorkflow(t *testing.T) {
 
 // TestE2E_HelmTemplateFailure tests the scenario where helm template fails.
 func TestE2E_HelmTemplateFailure(t *testing.T) {
-	if os.Getenv("E2E_TEST") != "true" {
+	if os.Getenv("E2E_TEST") != e2eTestEnvValue {
 		t.Skip("Skipping E2E test. Set E2E_TEST=true to run.")
 	}
 
@@ -278,6 +290,10 @@ func TestE2E_HelmTemplateFailure(t *testing.T) {
 		t.Fatalf("failed to get PR details: %v", err)
 	}
 
+	// Wait for GitHub to process the PR and compute the file diff
+	t.Logf("Waiting for GitHub to process PR...")
+	time.Sleep(5 * time.Second)
+
 	// Send webhook
 	t.Logf("Sending webhook to test server...")
 	webhookURL := testServer.URL + "/webhook"
@@ -296,7 +312,7 @@ func TestE2E_HelmTemplateFailure(t *testing.T) {
 	t.Logf("Verifying check runs show failure...")
 	foundFailure := false
 	for _, run := range checkRuns {
-		if strings.HasPrefix(run.GetName(), "chart-val:") {
+		if run.GetName() == checkRunName {
 			t.Logf("Found check run: %s (status: %s, conclusion: %s)",
 				run.GetName(), run.GetStatus(), run.GetConclusion())
 
@@ -316,7 +332,7 @@ func TestE2E_HelmTemplateFailure(t *testing.T) {
 
 // TestE2E_NoChartChanges tests the scenario where PR doesn't modify any charts.
 func TestE2E_NoChartChanges(t *testing.T) {
-	if os.Getenv("E2E_TEST") != "true" {
+	if os.Getenv("E2E_TEST") != e2eTestEnvValue {
 		t.Skip("Skipping E2E test. Set E2E_TEST=true to run.")
 	}
 
@@ -394,6 +410,10 @@ func TestE2E_NoChartChanges(t *testing.T) {
 		t.Fatalf("failed to get PR details: %v", err)
 	}
 
+	// Wait for GitHub to process the PR and compute the file diff
+	t.Logf("Waiting for GitHub to process PR...")
+	time.Sleep(5 * time.Second)
+
 	// Send webhook
 	t.Logf("Sending webhook to test server...")
 	webhookURL := testServer.URL + "/webhook"
@@ -413,7 +433,7 @@ func TestE2E_NoChartChanges(t *testing.T) {
 
 	foundChartSentry := false
 	for _, run := range checkRuns.CheckRuns {
-		if strings.HasPrefix(run.GetName(), "chart-val:") {
+		if run.GetName() == checkRunName {
 			foundChartSentry = true
 			t.Errorf("Unexpected check run found: %s", run.GetName())
 		}
@@ -430,7 +450,7 @@ func TestE2E_NoChartChanges(t *testing.T) {
 
 // TestE2E_ChartWithEnvironments tests multi-environment discovery.
 func TestE2E_ChartWithEnvironments(t *testing.T) {
-	if os.Getenv("E2E_TEST") != "true" {
+	if os.Getenv("E2E_TEST") != e2eTestEnvValue {
 		t.Skip("Skipping E2E test. Set E2E_TEST=true to run.")
 	}
 
@@ -508,6 +528,10 @@ func TestE2E_ChartWithEnvironments(t *testing.T) {
 		t.Fatalf("failed to get PR details: %v", err)
 	}
 
+	// Wait for GitHub to process the PR and compute the file diff
+	t.Logf("Waiting for GitHub to process PR...")
+	time.Sleep(5 * time.Second)
+
 	// Send webhook
 	t.Logf("Sending webhook to test server...")
 	webhookURL := testServer.URL + "/webhook"
@@ -526,7 +550,7 @@ func TestE2E_ChartWithEnvironments(t *testing.T) {
 	t.Logf("Verifying check runs include all environments...")
 	foundChartSentry := false
 	for _, run := range checkRuns {
-		if strings.HasPrefix(run.GetName(), "chart-val:") {
+		if run.GetName() == checkRunName {
 			foundChartSentry = true
 			t.Logf("Found check run: %s", run.GetName())
 
@@ -534,9 +558,9 @@ func TestE2E_ChartWithEnvironments(t *testing.T) {
 				summary := run.Output.GetSummary()
 				text := run.Output.GetText()
 
-				// Verify summary mentions multiple environments
-				if !strings.Contains(summary, "environment") {
-					t.Error("Expected summary to mention environments")
+				// Verify summary shows analyzed charts
+				if !strings.Contains(summary, "Analyzed") {
+					t.Error("Expected summary to show analyzed charts")
 				}
 
 				// Verify text includes dev, staging, prod sections
@@ -587,7 +611,7 @@ func TestE2E_ChartWithEnvironments(t *testing.T) {
 // TestE2E_UpdateExistingChart tests updating an existing chart (not adding new).
 // Creates base branch with chart, then feature branch that modifies it.
 func TestE2E_UpdateExistingChart(t *testing.T) {
-	if os.Getenv("E2E_TEST") != "true" {
+	if os.Getenv("E2E_TEST") != e2eTestEnvValue {
 		t.Skip("Skipping E2E test. Set E2E_TEST=true to run.")
 	}
 
@@ -696,6 +720,11 @@ func TestE2E_UpdateExistingChart(t *testing.T) {
 		t.Fatalf("failed to get PR details: %v", err)
 	}
 
+	// Wait for GitHub to process the PR and compute the file diff
+	// This is especially important when comparing non-main branches
+	t.Logf("Waiting for GitHub to process PR...")
+	time.Sleep(5 * time.Second)
+
 	// Step 6: Send webhook
 	t.Logf("Sending webhook to test server...")
 	webhookURL := testServer.URL + "/webhook"
@@ -714,7 +743,7 @@ func TestE2E_UpdateExistingChart(t *testing.T) {
 	t.Logf("Verifying check runs show actual diffs...")
 	foundChartSentry := false
 	for _, run := range checkRuns {
-		if strings.HasPrefix(run.GetName(), "chart-val:") {
+		if run.GetName() == checkRunName {
 			foundChartSentry = true
 			t.Logf("Found check run: %s", run.GetName())
 
@@ -724,24 +753,24 @@ func TestE2E_UpdateExistingChart(t *testing.T) {
 
 				t.Logf("Check run summary: %s", summary)
 
-				// Verify it shows changes (not "new chart")
-				if !strings.Contains(summary, "environment") {
-					t.Error("Expected summary to mention environments")
+				// Verify it shows changes (charts analyzed and changes detected)
+				if !strings.Contains(summary, "Analyzed") || !strings.Contains(summary, "changes") {
+					t.Error("Expected summary to show analyzed charts with changes")
 				}
 
-				// Verify the diff shows both additions and deletions (not all additions)
+				// Verify the diff shows additions
 				if !strings.Contains(text, "+") {
 					t.Error("Expected diff to show additions (+)")
 				}
 
-				// Check for actual diff format (not "all new" scenario)
-				if strings.Contains(text, "Changes detected") || strings.Contains(summary, "changed") {
+				// Verify it's an update scenario (not all new)
+				if strings.Contains(text, "Changes detected") || strings.Contains(summary, "changes") {
 					t.Logf("✓ Check run shows actual diff (update scenario)")
 				} else {
 					t.Error("Expected check run to show changes (update scenario), got something else")
 				}
 
-				// Verify diff includes environment details
+				// Verify diff includes environment details in the text body
 				for _, env := range []string{"dev", "staging", "prod"} {
 					if !strings.Contains(text, env) {
 						t.Errorf("Expected check run text to include environment: %s", env)
@@ -807,6 +836,9 @@ func getEnvOrDefaultInt64(key string, defaultValue int64) int64 {
 func setupTestServer(t *testing.T, appID, installationID int64, privateKey, webhookSecret string) *httptest.Server {
 	t.Helper()
 
+	// Create logger
+	log := logger.New("debug") // Changed to debug to see more details
+
 	// Create GitHub client with auto-renewing authentication
 	githubClient, err := ghclient.NewClient(appID, installationID, privateKey)
 	if err != nil {
@@ -821,15 +853,15 @@ func setupTestServer(t *testing.T, appID, installationID int64, privateKey, webh
 		t.Fatalf("creating helm adapter: %v", err)
 	}
 	reporter := githubout.New(githubClient)
-	fileChanges := prfiles.New(githubClient)
+	changedCharts := prfiles.New(githubClient, log)
 	semanticDiff := dyffdiff.New()
 	unifiedDiff := linediff.New()
 
-	// Create logger
-	log := logger.New("info")
+	// Chart config: use discovered charts adapter (backward compatible behavior)
+	discoveryConfig := discoveredcharts.New(envDiscovery, sourceCtrl)
 
-	// Create service
-	diffService := app.NewDiffService(sourceCtrl, envDiscovery, helmRenderer, reporter, fileChanges, semanticDiff, unifiedDiff, log)
+	// Create service (no Argo in E2E tests)
+	diffService := app.NewDiffService(sourceCtrl, changedCharts, nil, discoveryConfig, helmRenderer, reporter, semanticDiff, unifiedDiff, log)
 
 	// Create webhook handler
 	webhookHandler := githubin.NewWebhookHandler(diffService, webhookSecret, log)
@@ -878,7 +910,7 @@ func sendWebhook(ctx context.Context, webhookURL, webhookSecret, owner, repo str
 	signature := hex.EncodeToString(mac.Sum(nil))
 
 	// Send webhook request
-	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(payloadBytes))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}
@@ -893,7 +925,7 @@ func sendWebhook(ctx context.Context, webhookURL, webhookSecret, owner, repo str
 	if err != nil {
 		return fmt.Errorf("sending webhook: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		return fmt.Errorf("webhook returned status %d", resp.StatusCode)
@@ -1033,7 +1065,7 @@ func waitForCheckRuns(ctx context.Context, client *github.Client, owner, repo, r
 		// Check if any chart-val check runs are completed
 		completed := false
 		for _, run := range result.CheckRuns {
-			if strings.HasPrefix(run.GetName(), "chart-val:") && run.GetStatus() == "completed" {
+			if run.GetName() == checkRunName && run.GetStatus() == "completed" {
 				completed = true
 				break
 			}
@@ -1046,7 +1078,7 @@ func waitForCheckRuns(ctx context.Context, client *github.Client, owner, repo, r
 		time.Sleep(5 * time.Second)
 	}
 
-	return nil, fmt.Errorf("timeout waiting for check runs to complete")
+	return nil, errors.New("timeout waiting for check runs to complete")
 }
 
 func getPRComments(ctx context.Context, client *github.Client, owner, repo string, prNumber int) ([]*github.IssueComment, error) {
@@ -1178,7 +1210,7 @@ func addChartWithEnvironments(ctx context.Context, client *github.Client, owner,
 		}
 
 		opts := &github.RepositoryContentFileOptions{
-			Message: github.Ptr(fmt.Sprintf("Add %s", filepath.Base(repoPath))),
+			Message: github.Ptr("Add " + filepath.Base(repoPath)),
 			Content: content,
 			Branch:  github.Ptr(branch),
 		}

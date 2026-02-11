@@ -11,17 +11,17 @@ import (
 
 func TestAdapter_DiscoverEnvironments(t *testing.T) {
 	tests := []struct {
-		name     string
-		setup    func(t *testing.T) string // Returns chartDir path
-		want     []domain.EnvironmentConfig
-		wantErr  bool
+		name    string
+		setup   func(t *testing.T) string // Returns chartDir path
+		want    []domain.EnvironmentConfig
+		wantErr bool
 	}{
 		{
 			name: "no env directory returns default",
 			setup: func(t *testing.T) string {
 				tmpDir := t.TempDir()
 				chartDir := filepath.Join(tmpDir, "my-chart")
-				if err := os.MkdirAll(chartDir, 0o755); err != nil {
+				if err := os.MkdirAll(chartDir, 0o700); err != nil {
 					t.Fatal(err)
 				}
 				// No env/ directory
@@ -37,7 +37,7 @@ func TestAdapter_DiscoverEnvironments(t *testing.T) {
 				tmpDir := t.TempDir()
 				chartDir := filepath.Join(tmpDir, "my-chart")
 				envDir := filepath.Join(chartDir, "env")
-				if err := os.MkdirAll(envDir, 0o755); err != nil {
+				if err := os.MkdirAll(envDir, 0o700); err != nil {
 					t.Fatal(err)
 				}
 				// Empty env/ directory
@@ -53,10 +53,10 @@ func TestAdapter_DiscoverEnvironments(t *testing.T) {
 				tmpDir := t.TempDir()
 				chartDir := filepath.Join(tmpDir, "my-chart")
 				envDir := filepath.Join(chartDir, "env")
-				if err := os.MkdirAll(envDir, 0o755); err != nil {
+				if err := os.MkdirAll(envDir, 0o700); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(filepath.Join(envDir, "prod-values.yaml"), []byte("replicas: 3"), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(envDir, "prod-values.yaml"), []byte("replicas: 3"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 				return chartDir
@@ -71,12 +71,12 @@ func TestAdapter_DiscoverEnvironments(t *testing.T) {
 				tmpDir := t.TempDir()
 				chartDir := filepath.Join(tmpDir, "my-chart")
 				envDir := filepath.Join(chartDir, "env")
-				if err := os.MkdirAll(envDir, 0o755); err != nil {
+				if err := os.MkdirAll(envDir, 0o700); err != nil {
 					t.Fatal(err)
 				}
 				files := []string{"staging-values.yaml", "prod-values.yaml", "dev-values.yaml"}
 				for _, f := range files {
-					if err := os.WriteFile(filepath.Join(envDir, f), []byte("test"), 0o644); err != nil {
+					if err := os.WriteFile(filepath.Join(envDir, f), []byte("test"), 0o600); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -94,20 +94,20 @@ func TestAdapter_DiscoverEnvironments(t *testing.T) {
 				tmpDir := t.TempDir()
 				chartDir := filepath.Join(tmpDir, "my-chart")
 				envDir := filepath.Join(chartDir, "env")
-				if err := os.MkdirAll(envDir, 0o755); err != nil {
+				if err := os.MkdirAll(envDir, 0o700); err != nil {
 					t.Fatal(err)
 				}
 				// Create matching and non-matching files
-				if err := os.WriteFile(filepath.Join(envDir, "prod-values.yaml"), []byte("test"), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(envDir, "prod-values.yaml"), []byte("test"), 0o600); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(filepath.Join(envDir, "README.md"), []byte("test"), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(envDir, "README.md"), []byte("test"), 0o600); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(filepath.Join(envDir, ".gitignore"), []byte("test"), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(envDir, ".gitignore"), []byte("test"), 0o600); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(filepath.Join(envDir, "values.yaml"), []byte("test"), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(envDir, "values.yaml"), []byte("test"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 				return chartDir
@@ -122,10 +122,10 @@ func TestAdapter_DiscoverEnvironments(t *testing.T) {
 				tmpDir := t.TempDir()
 				chartDir := filepath.Join(tmpDir, "my-chart")
 				envDir := filepath.Join(chartDir, "env")
-				if err := os.MkdirAll(filepath.Join(envDir, "subdir"), 0o755); err != nil {
+				if err := os.MkdirAll(filepath.Join(envDir, "subdir"), 0o700); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(filepath.Join(envDir, "prod-values.yaml"), []byte("test"), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(envDir, "prod-values.yaml"), []byte("test"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 				return chartDir

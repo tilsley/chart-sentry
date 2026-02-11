@@ -24,9 +24,10 @@ func NewServer(container *Container) *Server {
 
 	// Routes
 	mux.Handle("POST /webhook", container.WebhookHandler)
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "ok")
+		//nolint:errcheck // Health check response, error not actionable
+		_, _ = fmt.Fprintln(w, "ok")
 	})
 
 	srv := &http.Server{

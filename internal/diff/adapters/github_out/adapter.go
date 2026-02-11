@@ -1,7 +1,9 @@
+// Package githubout handles GitHub output (check runs and PR comments).
 package githubout
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -25,19 +27,19 @@ func New(client *gogithub.Client) *Adapter {
 	return &Adapter{client: client}
 }
 
-// CreateInProgressCheck creates a check run in "in_progress" status.
-func (a *Adapter) CreateInProgressCheck(ctx context.Context, pr domain.PRContext, chartName string) (int64, error) {
+// CreateInProgressCheck creates a single check run in "in_progress" status for the PR.
+func (a *Adapter) CreateInProgressCheck(ctx context.Context, pr domain.PRContext) (int64, error) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	logger.Info("creating in-progress check", "chart", chartName, "pr", pr.PRNumber)
+	logger.Info("creating in-progress check", "pr", pr.PRNumber)
 
 	client := a.client
 
 	checkRun, _, err := client.Checks.CreateCheckRun(ctx, pr.Owner, pr.Repo, gogithub.CreateCheckRunOptions{
-		Name:    fmt.Sprintf("chart-val: %s", chartName),
+		Name:    "chart-val",
 		HeadSHA: pr.HeadSHA,
 		Status:  gogithub.Ptr("in_progress"),
 		Output: &gogithub.CheckRunOutput{
-			Title:   gogithub.Ptr(fmt.Sprintf("Helm diff — %s", chartName)),
+			Title:   gogithub.Ptr("Helm Diff"),
 			Summary: gogithub.Ptr("Analyzing chart changes..."),
 		},
 	})
@@ -45,7 +47,7 @@ func (a *Adapter) CreateInProgressCheck(ctx context.Context, pr domain.PRContext
 		return 0, fmt.Errorf("creating in-progress check: %w", err)
 	}
 
-	logger.Info("in-progress check created", "chart", chartName, "checkRunID", checkRun.GetID())
+	logger.Info("in-progress check created", "checkRunID", checkRun.GetID())
 	return checkRun.GetID(), nil
 }
 
@@ -55,18 +57,18 @@ func (a *Adapter) UpdateCheckWithResults(ctx context.Context, pr domain.PRContex
 	logger.Info("updating check run with results", "checkRunID", checkRunID, "numResults", len(results))
 
 	if len(results) == 0 {
-		return fmt.Errorf("no results to update check run")
+		return errors.New("no results to update check run")
 	}
 
 	client := a.client
-	conclusion, summary, text := formatChartCheckRun(results)
+	conclusion, summary, text := formatCheckRun(results)
 
 	_, _, err := client.Checks.UpdateCheckRun(ctx, pr.Owner, pr.Repo, checkRunID, gogithub.UpdateCheckRunOptions{
-		Name:       fmt.Sprintf("chart-val: %s", results[0].ChartName),
+		Name:       "chart-val",
 		Status:     gogithub.Ptr("completed"),
 		Conclusion: gogithub.Ptr(conclusion),
 		Output: &gogithub.CheckRunOutput{
-			Title:   gogithub.Ptr(fmt.Sprintf("Helm diff — %s", results[0].ChartName)),
+			Title:   gogithub.Ptr("Helm Diff"),
 			Summary: gogithub.Ptr(summary),
 			Text:    gogithub.Ptr(text),
 		},
@@ -79,48 +81,55 @@ func (a *Adapter) UpdateCheckWithResults(ctx context.Context, pr domain.PRContex
 	return nil
 }
 
-// PostComment posts a PR comment with the diff summary for a chart.
+// PostComment posts a PR comment with the diff summary for a single chart.
 func (a *Adapter) PostComment(ctx context.Context, pr domain.PRContext, results []domain.DiffResult) error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	logger.Info("posting PR comment", "chart", results[0].ChartName, "pr", pr.PRNumber)
 
 	if len(results) == 0 {
-		return fmt.Errorf("no results to post comment")
+		return errors.New("no results to post comment")
 	}
 
-	client := a.client
 	chartName := results[0].ChartName
+	logger.Info("posting PR comment", "chart", chartName, "pr", pr.PRNumber)
+
+	client := a.client
 	commentMarker := fmt.Sprintf("<!-- chart-val: %s -->", chartName)
 
 	// Delete old comments for this chart to avoid bloat
-	logger.Info("checking for existing comments to delete", "chart", chartName)
-	comments, _, err := client.Issues.ListComments(ctx, pr.Owner, pr.Repo, pr.PRNumber, &gogithub.IssueListCommentsOptions{})
-	if err != nil {
-		logger.Warn("failed to list comments, continuing anyway", "error", err)
-	} else {
-		for _, comment := range comments {
-			if strings.Contains(comment.GetBody(), commentMarker) {
-				logger.Info("deleting old comment", "commentID", comment.GetID())
-				_, err := client.Issues.DeleteComment(ctx, pr.Owner, pr.Repo, comment.GetID())
-				if err != nil {
-					logger.Warn("failed to delete old comment", "commentID", comment.GetID(), "error", err)
-				}
-			}
-		}
-	}
+	a.deleteMatchingComments(ctx, pr, commentMarker)
 
-	// Format and post new comment
 	commentBody := FormatPRComment(results)
 
-	_, _, err = client.Issues.CreateComment(ctx, pr.Owner, pr.Repo, pr.PRNumber, &gogithub.IssueComment{
+	_, _, err := client.Issues.CreateComment(ctx, pr.Owner, pr.Repo, pr.PRNumber, &gogithub.IssueComment{
 		Body: gogithub.Ptr(commentBody),
 	})
 	if err != nil {
 		return fmt.Errorf("creating PR comment: %w", err)
 	}
 
-	logger.Info("PR comment posted successfully", "chart", results[0].ChartName)
+	logger.Info("PR comment posted successfully", "chart", chartName)
 	return nil
+}
+
+// deleteMatchingComments deletes comments containing the given marker.
+func (a *Adapter) deleteMatchingComments(ctx context.Context, pr domain.PRContext, marker string) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	client := a.client
+
+	comments, _, err := client.Issues.ListComments(ctx, pr.Owner, pr.Repo, pr.PRNumber, &gogithub.IssueListCommentsOptions{})
+	if err != nil {
+		logger.Warn("failed to list comments, continuing anyway", "error", err)
+		return
+	}
+	for _, comment := range comments {
+		if strings.Contains(comment.GetBody(), marker) {
+			logger.Info("deleting old comment", "commentID", comment.GetID())
+			_, err := client.Issues.DeleteComment(ctx, pr.Owner, pr.Repo, comment.GetID())
+			if err != nil {
+				logger.Warn("failed to delete old comment", "commentID", comment.GetID(), "error", err)
+			}
+		}
+	}
 }
 
 // FormatCheckRunMarkdown formats a complete check run markdown document for testing.
@@ -130,89 +139,157 @@ func FormatCheckRunMarkdown(results []domain.DiffResult) string {
 		return ""
 	}
 
-	chartName := results[0].ChartName
-	conclusion, summary, text := formatChartCheckRun(results)
+	conclusion, summary, text := formatCheckRun(results)
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "# chart-val: %s\n\n", chartName)
+	sb.WriteString("# chart-val\n\n")
 	sb.WriteString("**Status:** completed\n")
 	fmt.Fprintf(&sb, "**Conclusion:** %s\n\n", conclusion)
-	fmt.Fprintf(&sb, "## Helm diff — %s\n\n", chartName)
+	sb.WriteString("## Helm Diff\n\n")
 	fmt.Fprintf(&sb, "### Summary\n%s\n\n", summary)
 	fmt.Fprintf(&sb, "### Output\n%s", text)
 
 	return sb.String()
 }
 
-// formatChartCheckRun builds the conclusion, summary, and collapsible text
-// for a single chart's Check Run.
-func formatChartCheckRun(group []domain.DiffResult) (conclusion, summary, text string) {
-	success, changes, errors := domain.CountByStatus(group)
+// formatCheckRun builds the conclusion, summary, and collapsible text for the check run.
+// Groups results by chart, showing diffs for changed charts and listing unchanged charts.
+func formatCheckRun(results []domain.DiffResult) (conclusion, summary, text string) {
+	_, _, errorCount := domain.CountByStatus(results)
+	conclusion = determineConclusion(errorCount)
 
-	// Set conclusion based on errors only
-	// Success = diff completed successfully (regardless of whether changes exist)
-	// Failure = error occurred during diff
-	if errors > 0 {
-		conclusion = "failure"
-		summary = fmt.Sprintf("❌ Failed to analyze chart (see details below)")
-	} else {
-		conclusion = "success"
-		summary = buildSummary(len(group), changes, success)
-	}
+	grouped, chartOrder := groupResultsByChart(results)
+	changedCharts, unchangedCharts := separateChangedCharts(grouped, chartOrder)
 
-	var sb strings.Builder
-	for i, r := range group {
-		if i > 0 {
-			sb.WriteString("\n")
-		}
-
-		// Determine status label for this environment
-		var statusLabel string
-		switch r.Status {
-		case domain.StatusError:
-			statusLabel = "Error"
-		case domain.StatusChanges:
-			statusLabel = "Changed"
-		case domain.StatusSuccess:
-			statusLabel = "No Changes"
-		}
-
-		fmt.Fprintf(&sb, "<details><summary>%s — %s</summary>\n\n", r.Environment, statusLabel)
-
-		// Show error or diff
-		if r.Status == domain.StatusError {
-			fmt.Fprintf(&sb, "%s\n", r.Summary)
-		} else if r.UnifiedDiff == "" && r.SemanticDiff == "" {
-			sb.WriteString("No changes detected.\n")
-		} else {
-			// Check Runs: Show both diffs (semantic first, then unified)
-			if r.SemanticDiff != "" {
-				sb.WriteString("**Semantic Diff (dyff):**\n")
-				fmt.Fprintf(&sb, "```diff\n%s\n```\n\n", r.SemanticDiff)
-			}
-			if r.UnifiedDiff != "" {
-				sb.WriteString("**Unified Diff (line-based):**\n")
-				fmt.Fprintf(&sb, "```diff\n%s\n```\n", r.UnifiedDiff)
-			}
-		}
-
-		sb.WriteString("\n</details>\n")
-	}
-
-	text = sb.String()
-	if len(text) > maxCheckRunTextLen {
-		truncMsg := "\n\n... (output truncated)"
-		text = text[:maxCheckRunTextLen-len(truncMsg)] + truncMsg
-	}
+	summary = buildSummary(chartOrder, changedCharts, unchangedCharts)
+	text = buildCheckRunText(grouped, changedCharts, unchangedCharts)
 
 	return conclusion, summary, text
 }
 
-func buildSummary(total, changed, unchanged int) string {
-	return fmt.Sprintf("Analyzed %d environment(s): %d changed, %d unchanged", total, changed, unchanged)
+func determineConclusion(errorCount int) string {
+	if errorCount > 0 {
+		return "failure"
+	}
+	return "success"
 }
 
-// FormatPRComment formats a PR comment body for a chart's diff results.
+func groupResultsByChart(results []domain.DiffResult) (map[string][]domain.DiffResult, []string) {
+	grouped := make(map[string][]domain.DiffResult)
+	var chartOrder []string
+	for _, r := range results {
+		if _, exists := grouped[r.ChartName]; !exists {
+			chartOrder = append(chartOrder, r.ChartName)
+		}
+		grouped[r.ChartName] = append(grouped[r.ChartName], r)
+	}
+	return grouped, chartOrder
+}
+
+func separateChangedCharts(grouped map[string][]domain.DiffResult, chartOrder []string) (changed, unchanged []string) {
+	for _, name := range chartOrder {
+		if chartHasChanges(grouped[name]) {
+			changed = append(changed, name)
+		} else {
+			unchanged = append(unchanged, name)
+		}
+	}
+	return changed, unchanged
+}
+
+func buildSummary(chartOrder, changedCharts, unchangedCharts []string) string {
+	return fmt.Sprintf("Analyzed %d chart(s): %d with changes, %d unchanged",
+		len(chartOrder), len(changedCharts), len(unchangedCharts))
+}
+
+func buildCheckRunText(grouped map[string][]domain.DiffResult, changedCharts, unchangedCharts []string) string {
+	var sb strings.Builder
+	formatChangedCharts(&sb, grouped, changedCharts)
+	formatUnchangedCharts(&sb, unchangedCharts)
+	return truncateIfNeeded(sb.String())
+}
+
+func formatChangedCharts(sb *strings.Builder, grouped map[string][]domain.DiffResult, changedCharts []string) {
+	for _, chartName := range changedCharts {
+		fmt.Fprintf(sb, "## %s\n\n", chartName)
+		for _, r := range grouped[chartName] {
+			formatEnvironmentResult(sb, r)
+		}
+	}
+}
+
+func formatEnvironmentResult(sb *strings.Builder, r domain.DiffResult) {
+	statusLabel := getStatusLabel(r.Status)
+	fmt.Fprintf(sb, "<details><summary>%s — %s</summary>\n\n", r.Environment, statusLabel)
+
+	switch {
+	case r.Status == domain.StatusError:
+		fmt.Fprintf(sb, "%s\n", r.Summary)
+	case r.UnifiedDiff == "" && r.SemanticDiff == "":
+		sb.WriteString("No changes detected.\n")
+	default:
+		formatDiffs(sb, r)
+	}
+
+	sb.WriteString("\n</details>\n\n")
+}
+
+func getStatusLabel(status domain.Status) string {
+	switch status {
+	case domain.StatusError:
+		return "Error"
+	case domain.StatusChanges:
+		return "Changed"
+	case domain.StatusSuccess:
+		return "No Changes"
+	default:
+		return "Unknown"
+	}
+}
+
+func formatDiffs(sb *strings.Builder, r domain.DiffResult) {
+	if r.SemanticDiff != "" {
+		sb.WriteString("**Semantic Diff (dyff):**\n")
+		fmt.Fprintf(sb, "```diff\n%s\n```\n\n", r.SemanticDiff)
+	}
+	if r.UnifiedDiff != "" {
+		sb.WriteString("**Unified Diff (line-based):**\n")
+		fmt.Fprintf(sb, "```diff\n%s\n```\n", r.UnifiedDiff)
+	}
+}
+
+func formatUnchangedCharts(sb *strings.Builder, unchangedCharts []string) {
+	if len(unchangedCharts) == 0 {
+		return
+	}
+
+	sb.WriteString("## Unchanged charts\n\n")
+	sb.WriteString("The following charts were analyzed and had no changes across all environments:\n\n")
+	for _, name := range unchangedCharts {
+		fmt.Fprintf(sb, "- `%s`\n", name)
+	}
+	sb.WriteString("\n")
+}
+
+func truncateIfNeeded(text string) string {
+	if len(text) > maxCheckRunTextLen {
+		truncMsg := "\n\n... (output truncated)"
+		return text[:maxCheckRunTextLen-len(truncMsg)] + truncMsg
+	}
+	return text
+}
+
+// chartHasChanges returns true if any result for a chart has changes or errors.
+func chartHasChanges(results []domain.DiffResult) bool {
+	for _, r := range results {
+		if r.Status == domain.StatusChanges || r.Status == domain.StatusError {
+			return true
+		}
+	}
+	return false
+}
+
+// FormatPRComment formats a PR comment body for a single chart's diff results.
 // Exported for use in integration tests.
 func FormatPRComment(results []domain.DiffResult) string {
 	if len(results) == 0 {
@@ -229,14 +306,15 @@ func FormatPRComment(results []domain.DiffResult) string {
 	fmt.Fprintf(&sb, "## 📊 Helm Diff Report: `%s`\n\n", chartName)
 
 	// Summary counts
-	_, changes, errors := domain.CountByStatus(results)
+	_, changes, errorCount := domain.CountByStatus(results)
 
-	if errors > 0 {
-		fmt.Fprintf(&sb, "❌ **Status:** Failed to analyze chart\n\n")
-	} else if changes > 0 {
+	switch {
+	case errorCount > 0:
+		sb.WriteString("❌ **Status:** Failed to analyze chart\n\n")
+	case changes > 0:
 		fmt.Fprintf(&sb, "✅ **Status:** Analysis complete — %d environment(s) with changes\n\n", changes)
-	} else {
-		fmt.Fprintf(&sb, "✅ **Status:** Analysis complete — No changes detected\n\n")
+	default:
+		sb.WriteString("✅ **Status:** Analysis complete — No changes detected\n\n")
 	}
 
 	// Environment details table
@@ -260,12 +338,10 @@ func FormatPRComment(results []domain.DiffResult) string {
 	for _, r := range results {
 		switch r.Status {
 		case domain.StatusError:
-			// Show error details
 			fmt.Fprintf(&sb, "<details>\n<summary><b>%s</b> — Error details</summary>\n\n", r.Environment)
 			fmt.Fprintf(&sb, "%s\n\n", r.Summary)
 			sb.WriteString("</details>\n\n")
 		case domain.StatusChanges:
-			// Show diff - use PreferredDiff (semantic if available, otherwise unified)
 			fmt.Fprintf(&sb, "<details>\n<summary><b>%s</b> — View diff</summary>\n\n", r.Environment)
 			fmt.Fprintf(&sb, "```diff\n%s\n```\n\n", r.PreferredDiff())
 			sb.WriteString("</details>\n\n")
