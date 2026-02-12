@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,8 +35,11 @@ func (a *Adapter) ComputeDiff(baseName, headName string, base, head []byte) stri
 	if err != nil {
 		return ""
 	}
-	//nolint:errcheck // Deferred temp dir cleanup, error not actionable
-	defer func() { _ = os.RemoveAll(tmpDir) }()
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			slog.Warn("failed to clean up temp directory", "path", tmpDir, "error", err)
+		}
+	}()
 
 	// Write manifests to temp files
 	baseFile := filepath.Join(tmpDir, "base.yaml")

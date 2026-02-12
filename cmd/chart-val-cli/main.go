@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"regexp"
@@ -183,8 +184,11 @@ func sendWebhook(
 	if err != nil {
 		return fmt.Errorf("sending request: %w", err)
 	}
-	//nolint:errcheck // Deferred cleanup, error not actionable
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Warn("failed to close response body", "error", err)
+		}
+	}()
 
 	//nolint:errcheck // Best effort read for logging only
 	body, _ := io.ReadAll(resp.Body)

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -57,8 +58,11 @@ func (a *Adapter) FetchChartFiles(ctx context.Context, owner, repo, ref, chartPa
 	if err != nil {
 		return "", nil, fmt.Errorf("downloading archive: %w", err)
 	}
-	//nolint:errcheck // Deferred cleanup, error not actionable
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Warn("failed to close response body", "error", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", nil, fmt.Errorf("unexpected status downloading archive: %d", resp.StatusCode)
@@ -68,8 +72,11 @@ func (a *Adapter) FetchChartFiles(ctx context.Context, owner, repo, ref, chartPa
 	if err != nil {
 		return "", nil, fmt.Errorf("creating temp dir: %w", err)
 	}
-	//nolint:errcheck // Cleanup function, error not actionable
-	cleanup := func() { _ = os.RemoveAll(tmpDir) }
+	cleanup := func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			slog.Warn("failed to clean up temp directory", "path", tmpDir, "error", err)
+		}
+	}
 
 	if err := extractTarGz(resp.Body, tmpDir); err != nil {
 		cleanup()
@@ -105,8 +112,11 @@ func extractTarGz(r io.Reader, dest string) error {
 	if err != nil {
 		return fmt.Errorf("creating gzip reader: %w", err)
 	}
-	//nolint:errcheck // Deferred cleanup, error not actionable
-	defer func() { _ = gz.Close() }()
+	defer func() {
+		if err := gz.Close(); err != nil {
+			slog.Warn("failed to close gzip reader", "error", err)
+		}
+	}()
 
 	tr := tar.NewReader(gz)
 	for {
@@ -169,12 +179,14 @@ func extractRegularFile(target string, header *tar.Header, tr *tar.Reader) error
 	}
 
 	if _, err := io.Copy(f, tr); err != nil {
-		//nolint:errcheck // Best effort cleanup on error path
-		_ = f.Close()
+		if closeErr := f.Close(); closeErr != nil {
+			slog.Warn("failed to close file after write error", "path", target, "error", closeErr)
+		}
 		return fmt.Errorf("writing file: %w", err)
 	}
 
-	//nolint:errcheck // File already written successfully
-	_ = f.Close()
+	if err := f.Close(); err != nil {
+		slog.Warn("failed to close file", "path", target, "error", err)
+	}
 	return nil
 }
